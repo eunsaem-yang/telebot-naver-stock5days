@@ -6,7 +6,6 @@ collect_daily_close.py가 미리 저장해 둔 price_history.json의 최근 5거
 과거 data.go.kr 기반 구현과 그 한계는 ROADMAP.md 참고.
 """
 import html
-from dotenv import load_dotenv
 
 from stock_utils import (
     is_trading_day,
@@ -17,8 +16,6 @@ from stock_utils import (
     send_telegram_photo,
     build_price_chart,
 )
-
-load_dotenv()
 
 if not is_trading_day():
     print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 알림을 건너뜁니다.")

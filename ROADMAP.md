@@ -1,6 +1,6 @@
 # ROADMAP.md
 
-`telebot_krx_stock.py`에 추가하고 싶은 기능과 구현 방법 후보를 정리한 문서다. 아직 구현 전 계획 단계.
+`notify_stock_price.py`에 추가하고 싶은 기능과 구현 방법 후보를 정리한 문서다. 아직 구현 전 계획 단계.
 
 ## 현재 상태 (제약사항)
 
@@ -122,7 +122,7 @@ data.go.kr 없이도 "최근 5일 종가" 추이를 만들려면, 하루 세 번
      날짜 기준 중복 제거 후 최근 5개만 남기고 저장
    - GitHub Actions 워크플로가 이 변경 사항을 저장소에 자동 커밋
 
-2. **`telebot_krx_stock.py`** (하루 3회, 10시/12시/2시 실행)
+2. **`notify_stock_price.py`** (하루 3회, 10시/12시/2시 실행)
    - `price_history.json`에서 이미 확정된 최근 5일 종가를 읽음 (재조회 없음)
    - 네이버 API로 그 시각의 현재가를 조회해 5일 종가 뒤에 6번째 점으로 추가
    - 기존과 동일하게 텍스트 메시지 + 종목별 그래프(`sendPhoto`)로 전송
@@ -132,13 +132,26 @@ data.go.kr 없이도 "최근 5일 종가" 추이를 만들려면, 하루 세 번
 
 4. **GitHub Actions 워크플로 2개**
    - `.github/workflows/notify.yml`: cron `0 1,3,5 * * 1-5` (UTC 기준, KST 10/12/14시), 평일마다
-     `telebot_krx_stock.py` 실행
+     `notify_stock_price.py` 실행
    - `.github/workflows/collect_close.yml`: cron `40 6 * * 1-5` (UTC 기준, KST 15:40경 장마감 직후),
      `collect_daily_close.py` 실행 후 `price_history.json` 변경분을 저장소에 커밋
 
 ### 사용자가 직접 해야 할 것 (코드로 자동화 불가)
 
-- [ ] 이 프로젝트를 git 저장소로 초기화하고 GitHub에 push (현재 git 저장소가 아님)
+- [x] 이 프로젝트를 git 저장소로 초기화하고 `main` 브랜치로 첫 커밋 완료
+- [ ] GitHub에 저장소 생성 후 push
 - [ ] GitHub 저장소 Settings → Secrets에 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 등록
       (`PUBLIC_DATA_PORTAL_KEY`는 더 이상 필요 없음)
 - [ ] Actions 탭에서 워크플로가 스케줄대로 실행되는지 확인 (cron은 몇 분씩 지연될 수 있음이 GitHub 공식 안내사항)
+
+### 구현 중 발견한 버그: 텔레그램 전송이 조용히 실패함
+
+로컬 테스트 중 `notify_stock_price.py`가 텔레그램 텍스트 메시지 전송에 실패하는 문제가 있었다.
+
+원인은 `stock_utils.py`가 모듈 임포트 시점에 바로
+`TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")`을 실행하는데, 호출하는 스크립트
+(`notify_stock_price.py`)에서는 `from stock_utils import ...`가 `load_dotenv()`보다 먼저
+실행되고 있었다. 즉 `.env`가 로드되기 전에 토큰을 읽어서 `None`으로 고정된 것이다.
+
+`stock_utils.py` 안에서 자신의 모듈이 임포트되는 즉시 `load_dotenv()`를 호출하도록 고쳐서,
+호출하는 쪽의 import 순서와 무관하게 항상 올바르게 동작하도록 수정했다.

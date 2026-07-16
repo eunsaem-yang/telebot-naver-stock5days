@@ -4,29 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-빅데이터 파이썬 수업용 텔레그램 봇 프로젝트. 현재 `telebot_krx_stock.py`는 대한민국 정부에서 운영하는 공공데이터포털(data.go.kr)을 활용해 금융위원회가 제공하는 KRX 주식 데이터를 가져와 결과를 하나의 메시지로 만들어 텔레그램 봇 API(`api.telegram.org/bot<TOKEN>/sendMessage`)로 전송하는 대화형 CLI 스크립트다.
+빅데이터 파이썬 수업용 텔레그램 봇 프로젝트. 관심종목(`watchlist.csv`)의 현재가와 최근 5거래일
+종가 추이 그래프를 하루 세 번(장이 열리는 평일 오전 10시/12시/2시) 자동으로 텔레그램 봇 API로
+전송하는 것이 최종 목표다. GitHub Actions의 scheduled workflow로 실행되며, 사용자가 직접 스크립트를
+실행할 필요가 없다.
 
-데이터는 `watchlist.csv`(종목코드 목록)를 읽어 실시간 주가를 조회하고 텔레그램으로 전송합니다. 공공데이터포털(금융위원회 주식시세) API는 특정 주말이나 공휴일 날짜를 지정해서 요청하면 데이터가 아예 비어 있는([]) 응답을 반환합니다.
-이를 해결하기 위해, 지정한 날짜(basDd)에 데이터가 없다면 
-데이터가 발견될 때까지 하루씩 과거로 돌아가며(최대 10일 전까지) 자동으로 재요청을 시도합니다. 
-이렇게 하면 주말이나 공휴일, 혹은 당일 장 마감 전 시간대에 코드를 실행하더라도 
-가장 최근에 마감된 최종 영업일 기준의 종가를 안전하게 받아올 수 있습니다.
+스크립트가 두 개로 나뉘어 있다:
+- `notify_stock_price.py`: 하루 3회(10/12/2시) 실행. 관심종목 현재가를 텔레그램 텍스트 메시지로
+  보내고, `price_history.json`에 저장된 최근 5일 종가 뒤에 현재가를 붙여 종목별 추이 그래프를
+  `sendPhoto`로 전송한다. 과거 종가를 직접 재조회하지 않는다.
+- `collect_daily_close.py`: 하루 1회, 장마감 직후 실행. 그날의 최종 종가를 조회해
+  `price_history.json`에 누적 저장(종목별 최근 5거래일치만 유지)한다. GitHub Actions 실행 환경은
+  매번 초기화되므로 이 파일은 워크플로가 저장소에 직접 커밋해서 다음 실행 때 다시 읽는 방식으로
+  상태를 유지한다.
+- `stock_utils.py`: 두 스크립트가 공유하는 함수(네이버 현재가 조회, 히스토리 읽기/쓰기, 텔레그램
+  전송, 그래프 생성, 거래일 판별) 모음.
+
+시세 데이터는 네이버 금융 비공식 API(`m.stock.naver.com/api/stock/{code}/basic`) 하나로 통합되어
+있다. 이 엔드포인트는 장중이면 실시간 체결가를, 장 마감 후 호출하면 그날의 최종 종가를
+`marketStatus`/`closePrice` 필드로 그대로 돌려주기 때문에 "현재가 조회"와 "종가 기록"을 모두
+처리할 수 있다.
+
+**공공데이터포털(data.go.kr) API는 더 이상 사용하지 않는다.** 활용신청 승인 여부와 무관하게
+`basDd` 날짜 필터가 항상 무시되고 고정된 데이터만 반환되는 문제를 확인했기 때문이다
+(자세한 진단 과정과 원인은 `ROADMAP.md`의 "알려진 이슈" 절 참고).
+
+거래일 판별은 `holidays`(`country="KR"`) 패키지로 주말/공휴일을 걸러낸다. API의 빈 응답으로
+휴장일을 추측하던 방식보다 안정적이다.
 
 ## 실행 방법
 
 ```
-python ./telebot_krx_stock.py
+python ./notify_stock_price.py       # 현재가 알림 (하루 3회 스케줄)
+python ./collect_daily_close.py      # 종가 히스토리 수집 (하루 1회, 장마감 후)
 ```
 
-의존성은 `requests`, `python-dotenv`이며 별도 `requirements.txt`는 없다(수동 설치됨).
+의존성은 `requirements.txt`에 명시되어 있다 (`requests`, `python-dotenv`, `pandas`,
+`matplotlib`, `holidays`).
+
+## 자동 실행 (GitHub Actions)
+
+`.github/workflows/notify.yml`(10/12/14시 KST, 평일)과 `.github/workflows/collect_close.yml`
+(15:40 KST 장마감 직후, 평일)이 각 스크립트를 자동 실행한다. cron은 UTC 기준으로 작성되어
+있으므로 시간을 수정할 때는 KST와의 9시간 차이를 감안해야 한다. `collect_close.yml`은 실행 후
+`price_history.json` 변경분을 저장소에 직접 커밋·푸시한다 (`permissions: contents: write` 필요).
 
 ## 환경 변수
 
-`.env`에서 `python-dotenv`로 로드한다. 필수 값: `PUBLIC_DATA_PORTAL_KEY`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-- `PUBLIC_DATA_PORTAL_KEY`: data.go.kr(공공데이터포털)에서 금융위원회_주식시세정보 서비스 신청 후 발급받는 디코딩 서비스키
+`.env`에서 `python-dotenv`로 로드한다 (로컬 실행용). GitHub Actions에서는 저장소 Secrets에
+동일한 이름으로 등록해서 사용한다. 필수 값: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 - `TELEGRAM_BOT_TOKEN`: 텔레그램 `@BotFather`에서 `/newbot`으로 발급
 - `TELEGRAM_CHAT_ID`: 봇에게 메시지를 보낸 뒤 `telegram_bot.py`를 실행해 `getUpdates` 응답에서 확인
+
+네이버 API는 별도 인증키가 필요 없어 `PUBLIC_DATA_PORTAL_KEY`, `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`는
+더 이상 필요하지 않다.
 
 **`.env`에는 실제 비밀키가 평문으로 들어있다. 절대 커밋하거나 출력/로그에 노출하지 말 것** (`.gitignore`에 등록됨).
 

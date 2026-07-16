@@ -1,5 +1,5 @@
 """
-telebot_krx_stock.py(하루 3회 알림)와 collect_daily_close.py(하루 1회 종가 수집)가
+notify_stock_price.py(하루 3회 알림)와 collect_daily_close.py(하루 1회 종가 수집)가
 공통으로 쓰는 함수 모음.
 
 네이버 금융 비공식 API(m.stock.naver.com)는 장중이면 실시간 체결가를, 장 시작 전/마감
@@ -17,6 +17,7 @@ import matplotlib
 matplotlib.use("Agg")  # 화면 출력 없이 이미지 파일(버퍼)로만 저장
 import matplotlib.pyplot as plt
 from datetime import datetime
+from dotenv import load_dotenv
 
 plt.rcParams["font.family"] = "Malgun Gothic"  # 그래프 한글 표시
 plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
@@ -24,6 +25,10 @@ plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 WATCHLIST_FILE = "watchlist.csv"
 PRICE_HISTORY_FILE = "price_history.json"
 NUM_HISTORY_DAYS = 5
+
+# 이 모듈이 임포트되는 시점에 바로 .env를 로드해야, 아래 os.environ.get() 호출이
+# 호출 스크립트의 import 순서와 무관하게 항상 올바른 값을 읽는다.
+load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")

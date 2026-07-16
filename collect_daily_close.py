@@ -1,11 +1,10 @@
 """
 장마감 직후 하루 1회 실행되는 스크립트.
 관심종목(watchlist.csv)의 그날 최종 종가를 네이버 API로 조회해 price_history.json에
-누적 저장한다 (종목별 최근 5거래일치만 유지). telebot_krx_stock.py는 이 파일을 읽기만
+누적 저장한다 (종목별 최근 5거래일치만 유지). notify_stock_price.py는 이 파일을 읽기만
 하고 직접 API를 재조회하지 않는다 — 자세한 배경은 ROADMAP.md의 "기능 3" 참고.
 """
 from datetime import datetime
-from dotenv import load_dotenv
 
 from stock_utils import (
     is_trading_day,
@@ -15,8 +14,6 @@ from stock_utils import (
     update_price_history,
     fetch_naver_current_price,
 )
-
-load_dotenv()
 
 if not is_trading_day():
     print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 종가 수집을 건너뜁니다.")
