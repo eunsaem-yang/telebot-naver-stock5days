@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-빅데이터 파이썬 수업용 텔레그램 봇 프로젝트. 관심종목(`watchlist.csv`)의 현재가와 최근 5거래일
+빅데이터 파이썬 수업용 텔레그램 봇 프로젝트. 관심종목(`watchlist.csv`)의 현재가와 최근 15거래일
 종가 추이 그래프를 하루 세 번(장이 열리는 평일 오전 10시/12시/2시) 자동으로 텔레그램 봇 API로
 전송하는 것이 최종 목표다. GitHub Actions의 scheduled workflow로 실행되며, 사용자가 직접 스크립트를
 실행할 필요가 없다.
 
 스크립트가 두 개로 나뉘어 있다:
 - `notify_stock_price.py`: 하루 3회(10/12/2시) 실행. 관심종목 현재가를 텔레그램 텍스트 메시지로
-  보내고, `price_history.json`에 저장된 최근 5일 종가 뒤에 현재가를 붙여 종목별 추이 그래프를
+  보내고, `price_history.json`에 저장된 최근 15일 종가 뒤에 현재가를 붙여 종목별 추이 그래프를
   `sendPhoto`로 전송한다. 과거 종가를 직접 재조회하지 않는다.
 - `collect_daily_close.py`: 하루 1회, 장마감 직후 실행. 그날의 최종 종가를 조회해
-  `price_history.json`에 누적 저장(종목별 최근 5거래일치만 유지)한다. GitHub Actions 실행 환경은
+  `price_history.json`에 누적 저장(종목별 최근 15거래일치만 유지)한다. GitHub Actions 실행 환경은
   매번 초기화되므로 이 파일은 워크플로가 저장소에 직접 커밋해서 다음 실행 때 다시 읽는 방식으로
   상태를 유지한다.
 - `stock_utils.py`: 두 스크립트가 공유하는 함수(네이버 현재가 조회, 히스토리 읽기/쓰기, 텔레그램

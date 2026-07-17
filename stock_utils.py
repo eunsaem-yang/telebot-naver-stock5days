@@ -24,7 +24,7 @@ plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 
 WATCHLIST_FILE = "watchlist.csv"
 PRICE_HISTORY_FILE = "price_history.json"
-NUM_HISTORY_DAYS = 5
+NUM_HISTORY_DAYS = 15
 
 # 이 모듈이 임포트되는 시점에 바로 .env를 로드해야, 아래 os.environ.get() 호출이
 # 호출 스크립트의 import 순서와 무관하게 항상 올바른 값을 읽는다.

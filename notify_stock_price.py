@@ -1,7 +1,7 @@
 """
 하루 3회(장이 열리는 날 오전 10시/12시/2시) 실행되는 알림 스크립트.
 관심종목(watchlist.csv)의 현재가를 네이버 API로 조회해 텔레그램 텍스트 메시지로 보내고,
-collect_daily_close.py가 미리 저장해 둔 price_history.json의 최근 5거래일 종가에 방금 조회한
+collect_daily_close.py가 미리 저장해 둔 price_history.json의 최근 15거래일 종가에 방금 조회한
 현재가를 마지막 점으로 추가한 그래프를 종목별로 그려 sendPhoto로 전송한다.
 과거 data.go.kr 기반 구현과 그 한계는 ROADMAP.md 참고.
 """
@@ -62,7 +62,7 @@ if send_telegram_message(telegram_message):
 else:
     print("❌ 현재가 메시지 전송에 실패했습니다.")
 
-# 2. collect_daily_close.py가 저장해 둔 최근 5거래일 종가를 읽어 그래프 생성 및 전송
+# 2. collect_daily_close.py가 저장해 둔 최근 15거래일 종가를 읽어 그래프 생성 및 전송
 price_history = load_price_history()
 
 for code, info in current_prices.items():

@@ -1,7 +1,7 @@
 """
 장마감 직후 하루 1회 실행되는 스크립트.
 관심종목(watchlist.csv)의 그날 최종 종가를 네이버 API로 조회해 price_history.json에
-누적 저장한다 (종목별 최근 5거래일치만 유지). notify_stock_price.py는 이 파일을 읽기만
+누적 저장한다 (종목별 최근 15거래일치만 유지). notify_stock_price.py는 이 파일을 읽기만
 하고 직접 API를 재조회하지 않는다 — 자세한 배경은 ROADMAP.md의 "기능 3" 참고.
 """
 from datetime import datetime
