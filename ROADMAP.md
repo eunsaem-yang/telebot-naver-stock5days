@@ -138,11 +138,15 @@ data.go.kr 없이도 "최근 5일 종가" 추이를 만들려면, 하루 세 번
 
 ### 사용자가 직접 해야 할 것 (코드로 자동화 불가)
 
-- [x] 이 프로젝트를 git 저장소로 초기화하고 `main` 브랜치로 첫 커밋 완료
-- [ ] GitHub에 저장소 생성 후 push
-- [ ] GitHub 저장소 Settings → Secrets에 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 등록
+- [x] 이 프로젝트를 git 저장소로 초기화하고 `main` 브랜치로 첫 커밋 완료 (로컬 커밋 2개: `15a3bf8`, `68d5f17`)
+- [x] GitHub에 저장소 생성 후 push 완료 (`github.com/eunsaem-yang/-telebot-naver-stock5days`,
+      로컬 환경에 `gh` CLI가 없어 사용자가 웹사이트에서 직접 저장소 생성 → URL 공유 → `git push` 순으로 진행)
+- [x] GitHub 저장소 Settings → Secrets에 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 등록 완료
       (`PUBLIC_DATA_PORTAL_KEY`는 더 이상 필요 없음)
 - [ ] Actions 탭에서 워크플로가 스케줄대로 실행되는지 확인 (cron은 몇 분씩 지연될 수 있음이 GitHub 공식 안내사항)
+
+**우선순위 메모**: Turso DB 마이그레이션(향후 계획)보다 이 GitHub Actions 자동화 마무리가 먼저다.
+저장 방식(JSON→DB) 실험은 자동화가 실제로 스케줄대로 동작하는 걸 확인한 뒤에 진행한다.
 
 ### 구현 중 발견한 버그: 텔레그램 전송이 조용히 실패함
 
