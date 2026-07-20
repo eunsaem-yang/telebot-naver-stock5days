@@ -19,7 +19,9 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from dotenv import load_dotenv
 
-plt.rcParams["font.family"] = "Malgun Gothic"  # 그래프 한글 표시
+plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic", "AppleGothic"]  # 그래프 한글 표시
+# Windows 로컬은 맑은 고딕, GitHub Actions(Ubuntu, fonts-nanum 설치)는 나눔고딕, macOS는 애플고딕이
+# 순서대로 탐색되어 설치된 첫 폰트가 사용된다.
 plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 
 WATCHLIST_FILE = "watchlist.csv"
