@@ -44,10 +44,12 @@ python ./collect_daily_close.py      # 종가 히스토리 수집 (하루 1회, 
 
 ## 자동 실행 (GitHub Actions)
 
-`.github/workflows/notify.yml`(10/12/14시 KST, 평일)과 `.github/workflows/collect_close.yml`
-(15:40 KST 장마감 직후, 평일)이 각 스크립트를 자동 실행한다. cron은 UTC 기준으로 작성되어
-있으므로 시간을 수정할 때는 KST와의 9시간 차이를 감안해야 한다. `collect_close.yml`은 실행 후
-`price_history.json` 변경분을 저장소에 직접 커밋·푸시한다 (`permissions: contents: write` 필요).
+`.github/workflows/notify.yml`(10:05/12:05/14:05시 KST, 평일)과 `.github/workflows/collect_close.yml`
+(15:45 KST 장마감 직후, 평일)이 각 스크립트를 자동 실행한다. cron은 UTC 기준으로 작성되어
+있으므로 시간을 수정할 때는 KST와의 9시간 차이를 감안해야 한다. 정시(0분)는 GitHub Actions
+스케줄이 몰리는 시간대라 지연·스킵되기 쉬우므로 일부러 정시를 피해 분(5분/45분)을 지정했다.
+`collect_close.yml`은 실행 후 `price_history.json` 변경분을 저장소에 직접 커밋·푸시한다
+(`permissions: contents: write` 필요).
 
 ## 환경 변수
 

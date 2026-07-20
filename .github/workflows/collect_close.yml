@@ -2,8 +2,9 @@ name: 종가 히스토리 수집
 
 on:
   schedule:
-    # KST 15:40 (UTC 06:40), 장마감 직후, 평일만
-    - cron: "40 6 * * 1-5"
+    # KST 15:45 (UTC 06:45), 장마감 직후, 평일만
+    # 정시(0분)는 GitHub Actions 스케줄이 몰려 지연·스킵되기 쉬워 40분→45분으로 미룸
+    - cron: "45 6 * * 1-5"
   workflow_dispatch:
 
 permissions:
