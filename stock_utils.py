@@ -157,7 +157,8 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     for x, y in zip(labels, prices):
         ax.annotate(f"{y:,}", (x, y), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=9)
 
-    ax.set_title(f"{name} ({code}) 최근 {len(daily_closes)}일 종가 + 현재가")
+    title_prefix = f"최근 {len(daily_closes)}일 종가 + 현재가" if daily_closes else "현재가"
+    ax.set_title(f"{name} ({code}) {title_prefix}")
     ax.set_ylabel("가격 (원)")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()

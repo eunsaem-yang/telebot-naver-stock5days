@@ -68,12 +68,14 @@ price_history = load_price_history()
 for code, info in current_prices.items():
     daily_closes = price_history.get(code, [])
     if not daily_closes:
-        print(f"⚠️ [{code}] 저장된 종가 히스토리가 없어 그래프를 생성하지 않습니다. "
+        print(f"⚠️ [{code}] 저장된 종가 히스토리가 없어 현재가만으로 그래프를 그립니다. "
               f"collect_daily_close.py가 아직 한 번도 실행되지 않았을 수 있습니다.")
-        continue
 
     chart_buffer = build_price_chart(code, info["name"], daily_closes, info["price"])
-    caption = f"📈 {info['name']} ({code}) 최근 {len(daily_closes)}일 종가 + 현재가 추이"
+    if daily_closes:
+        caption = f"📈 {info['name']} ({code}) 최근 {len(daily_closes)}일 종가 + 현재가 추이"
+    else:
+        caption = f"📈 {info['name']} ({code}) 현재가 (종가 히스토리 누적 전)"
 
     if send_telegram_photo(chart_buffer, caption):
         print(f"🎉 [{code}] 추이 그래프를 텔레그램으로 전송했습니다!")

@@ -55,9 +55,11 @@ python collect_daily_close.py      # 종가 히스토리 수집 (장마감 후)
 
 - **아무 메시지도 안 옴 (오류도 없음)**: 오늘이 주말/공휴일이면 `is_trading_day()`가 실행을
   건너뜁니다. 평일 개장일에 다시 실행해보세요.
-- **텍스트는 오는데 그래프가 안 옴**: `notify_stock_price.py`는 `price_history.json`에 저장된
-  과거 종가를 읽기만 하고 직접 조회하지 않습니다. 그래프까지 받으려면 장마감(15:30 이후) 후에
-  `collect_daily_close.py`를 최소 한 번 실행해서 히스토리를 먼저 쌓아야 합니다.
+- **그래프에 점이 하나뿐임 (현재가만 찍힘)**: `notify_stock_price.py`는 `price_history.json`에
+  저장된 과거 종가를 읽기만 하고 직접 조회하지 않습니다. `collect_daily_close.py`가 아직 한 번도
+  실행되지 않았거나 그 종목의 히스토리가 없으면, 저장된 과거 종가 없이 현재가 하나만으로 그래프를
+  그립니다. 장마감(15:30 이후) 후 `collect_daily_close.py`를 실행해 히스토리를 쌓으면 이후부터는
+  추이 그래프로 채워집니다.
 - **`UnicodeEncodeError`가 남 (Windows)**: 터미널 인코딩이 UTF-8이 아니어서 이모지 출력에서
   발생합니다. 아래처럼 실행하세요.
   ```
