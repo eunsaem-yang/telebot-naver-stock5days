@@ -1,0 +1,56 @@
+name: 수동 트리거 확인 (텔레그램 버튼)
+
+on:
+  schedule:
+    # 평일 KST 09:00~18:59 (UTC 00:00~09:59)에 5분 간격으로 폴링.
+    # 정시/5분 단위 그대로 쓰면 GitHub Actions 스케줄이 몰려 지연·스킵되기 쉬워 2분 오프셋을 둠.
+    - cron: "2-59/5 0-9 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: check-manual-trigger
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      triggered: ${{ steps.check.outputs.triggered }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 대부분의 폴링은 트리거 없이 끝나므로, 확인 단계는 가벼운 의존성만 설치한다.
+      # holidays는 거래일 판별(휴장일이면 notify job을 아예 안 켜기 위함)에 필요해서 포함하고,
+      # 무거운 pandas/matplotlib은 트리거가 감지된 notify job에서만 설치한다.
+      - run: pip install requests python-dotenv holidays
+
+      - id: check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python check_manual_trigger.py
+
+  notify:
+    needs: check
+    if: needs.check.outputs.triggered == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: 그래프용 한글 폰트 설치
+        run: sudo apt-get install -y fonts-nanum
+
+      - env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python notify_stock_price.py
