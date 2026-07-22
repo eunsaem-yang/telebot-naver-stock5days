@@ -28,22 +28,6 @@ from stock_utils import (
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
 st.title("📈 관심종목 현재가 대시보드")
 
-# TODO(임시 진단용, 원인 확인 후 삭제): 네이버 API 조회 실패 원인을 화면에 직접 표시
-with st.expander("🔍 진단 정보 (임시)"):
-    import requests as _requests
-    for _label, _url in [
-        ("m.stock.naver.com (현재가)", "https://m.stock.naver.com/api/stock/005930/basic"),
-        ("api.finance.naver.com (분봉/일별)", "https://api.finance.naver.com/siseJson.naver?symbol=005930&requestType=1&startTime=20260722&endTime=20260722&timeframe=day"),
-    ]:
-        st.write(f"**{_label}**")
-        try:
-            _r = _requests.get(_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            st.write("상태 코드:", _r.status_code)
-            st.code(_r.text[:500])
-        except Exception as _e:
-            st.write("예외 발생:")
-            st.exception(_e)
-
 if st.button("🔄 새로고침"):
     st.rerun()
 

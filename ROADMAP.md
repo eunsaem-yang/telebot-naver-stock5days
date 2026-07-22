@@ -856,15 +856,20 @@ Turso 계정 생성과 DB 발급은 브라우저 로그인(`turso auth login`/`s
       기존 DB를 `turso db destroy`로 지운 뒤 같은 이름(`telebot-stock`)으로 재생성 → URL/토큰
       재발급 → `.env` 갱신까지 전 과정을 사용자가 직접 수행, `collect_daily_close.py`로 재검증
       완료 (2026-07-22). 이번엔 토큰을 대화창에 붙여넣지 않고 본인 터미널에서만 다뤘다.
-- [ ] GitHub 저장소 Settings → Secrets에 두 값 등록 (`notify.yml`/`collect_close.yml`/
-      `check_manual_trigger.yml`이 사용)
+- [x] GitHub 저장소 Settings → Secrets에 두 값 등록 (`notify.yml`/`collect_close.yml`/
+      `check_manual_trigger.yml`이 사용). 등록 첫 시도에서 `collect_close.yml`이 실패했는데,
+      원인은 Secrets가 아니라 **로컬에서 완료한 코드 변경 전체가 그때까지 GitHub에 push되지
+      않아** 저장소에는 여전히 옛날 워크플로(git commit/push 방식)가 남아있었기 때문이었다 —
+      실패 로그에 `git push` 충돌 메시지가 찍혀 바로 알아챌 수 있었다. `git add`(관련 파일만
+      선별, `.env`/무관한 미완성 파일 제외) → `commit` → `push` 후 `collect_close.yml`을
+      `workflow_dispatch`로 재실행해 **Success** 확인 완료 (2026-07-22).
 - [ ] Streamlit Community Cloud 앱 Settings → Secrets에 두 값 등록 (`dashboard.py`가 사용)
 
-**현재 상태**: 로컬 실행은 Turso DB 연동까지 완전히 검증됐다. GitHub Actions와 Streamlit
-Cloud는 아직 Secrets 등록 전이라, 그 전까지는 `notify`/`collect_close` 워크플로와 배포된
-대시보드가 DB 연결 실패로 종가 히스토리 관련 기능만 조용히 비어 있는 상태로 동작한다(코드가
-예외를 잡아 로그만 남기고 계속 진행하도록 방어적으로 작성돼 있어, 텔레그램 메시지 전송 자체가
-막히지는 않는다).
+**현재 상태**: 로컬 실행과 GitHub Actions는 Turso DB 연동까지 완전히 검증됐다
+(`collect_close.yml` 수동 실행 Success). Streamlit Cloud만 아직 Secrets 등록 전이라, 배포된
+대시보드는 DB 연결 실패로 종가 히스토리 관련 기능만 조용히 비어 있는 상태로 동작한다(코드가
+예외를 잡아 로그만 남기고 계속 진행하도록 방어적으로 작성돼 있어, 현재가 조회 자체는 정상
+동작한다).
 
 ### 알려진 이슈: 계정 가입 브라우저 콜백 타임아웃 → `--headless`로 우회 (2026-07-22)
 
@@ -896,3 +901,54 @@ Revoke하는 것으로 대응**했다. DB 단위로 발급하는 `TURSO_AUTH_TOK
 막는 방화벽 환경에서 학생들이 겪을 수 있는 문제이기도 해서, `.env`에는 그대로 `turso db show`가
 주는 `libsql://` 형식을 넣게 하고 변환은 코드가 알아서 하도록 했다(사용자가 스킴을 신경 쓸
 필요 없음).
+
+## 알려진 이슈: Streamlit Community Cloud에서 네이버 API 전체가 ConnectTimeout (2026-07-22)
+
+### 증상
+
+Turso Secrets(`TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`)까지 Streamlit Cloud에 정상 등록했는데도
+배포된 대시보드에 모든 종목이 "현재가 조회 실패"로 떴다. 로딩 스피너는 정상적으로 멈췄고
+Turso 관련 에러는 아니었다.
+
+### 진단 과정
+
+`Manage app` 로그 패널에는 배포(의존성 설치) 로그만 보이고 스크립트 실행 중 `print()` 출력은
+전혀 잡히지 않아(Streamlit Cloud 특유의 출력 버퍼링/로그 뷰 한계로 추정), 로그만으로는 원인을
+알 수 없었다. `dashboard.py`에 `st.expander`로 감싼 임시 진단 코드를 넣어 화면에 직접
+상태 코드/예외를 띄우는 방식으로 우회했다:
+
+```python
+with st.expander("🔍 진단 정보 (임시)"):
+    ...
+    _r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+    st.write("상태 코드:", _r.status_code)
+```
+
+결과: `m.stock.naver.com`, `api.finance.naver.com` **두 네이버 도메인 모두** 10초
+`ConnectTimeout`(TCP 연결 자체가 응답 없음, HTTP 레벨 403 같은 명시적 거부가 아님)으로
+실패했다. 특정 엔드포인트 하나의 문제가 아니라 **Streamlit Community Cloud 인프라에서
+네이버 도메인 전체로 나가는 연결 자체가 막혀 있는 것**으로 결론 내렸다(네이버 쪽에서 이
+클라우드 IP 대역을 차단하고 있을 가능성이 높다 — 같은 코드가 로컬과 GitHub Actions
+(Azure 러너)에서는 정상 동작하는 것과 대조적이다).
+
+진단에 썼던 임시 코드는 원인 확인 후 제거했다(`dashboard.py`는 마이그레이션 완료 상태로
+복원).
+
+### 대응 방향 (검토 중, 아직 미착수)
+
+코드로 해결할 수 있는 문제가 아니라 호스팅 인프라 자체의 네트워크 제약이라, 몇 가지 방향이
+있다:
+
+- **Turso 히스토리만으로 성능 저하 없이 보여주기**: 현재가 조회 실패 시 그 종목 전체를
+  건너뛰는(`continue`) 대신, Turso에 이미 저장된 과거 종가만으로라도 그래프를 보여주도록
+  `dashboard.py`를 수정. 완전한 기능은 아니지만 최소한 "빈 화면"은 피할 수 있다.
+- **다른 무료 호스팅으로 이전**: Render, Fly.io, Hugging Face Spaces 등 다른 IP 대역을 쓰는
+  플랫폼에서는 네이버 접근이 막히지 않을 수도 있다 — 다만 시도해보기 전까지는 확실치 않고,
+  각 플랫폼의 무료 티어 제약(카드 등록 여부, 슬립 정책 등)도 다시 비교해야 한다.
+  `ROADMAP.md`의 "전략적 재검토" 절에서 이미 Flask/FastAPI·Gradio를 검토했던 것과 같은 종류의
+  트레이드오프 분석이 필요하다.
+- **그대로 두고 알려진 한계로 문서화**: 텔레그램 push 경로(GitHub Actions, Azure 인프라)는
+  이 문제와 무관하게 정상 동작하므로, 급하지 않다면 대시보드 쪽 한계로 남겨두고 우선순위를
+  낮출 수도 있다.
+
+아직 방향을 정하지 않았다.
