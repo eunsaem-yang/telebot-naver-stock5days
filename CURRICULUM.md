@@ -2,18 +2,31 @@
 
 이 프로젝트를 처음부터 Turso DB 연동까지 완성하는 것을 목표로 한 13주 과정 기획서다.
 실습 대상 코드는 `notify_stock_price.py`, `collect_daily_close.py`, `check_manual_trigger.py`,
-`setup_telegram_button.py`, `stock_utils.py`, `.github/workflows/*.yml`이며, 최종적으로
-`price_history.json` 파일 저장 방식을 Turso DB로 전환하는 것까지 포함한다.
+`setup_telegram_button.py`, `stock_utils.py`, `dashboard.py`, `.github/workflows/*.yml`이며,
+최종적으로 `price_history.json` 파일 저장 방식을 Turso DB로 전환하는 것까지 포함한다.
 
 (원래 12주로 설계했으나, 실제 구현 과정에서 나온 텔레그램 수동 트리거 기능을 반영하며 13주로
 늘렸다 — 아래 "설계 의도" 마지막 문단 참고.)
 
+**설계 배경 (2026-07-22 갱신)**: 실제 구현을 진행하며 GitHub Actions `schedule` 트리거가
+예정 시각에 아예 실행 기록조차 남기지 않고 스킵되는 신뢰성 한계를 겪었다. 이 문제를 계기로
+"텔레그램으로 받는다(push)"는 특정 구현이 아니라 "원하는 시점에 데이터를 확인한다"가 프로젝트의
+진짜 목적임을 재확인했고, 사용자가 원할 때 직접 열어보는 **Streamlit 대시보드(pull, `dashboard.py`)**
+를 push와 나란히 두는 방향으로 프로젝트 범위가 넓어졌다. push와 pull 두 경로가 13주차에 만드는
+동일한 Turso DB를 공유하므로, 이 문서의 주차 구성 자체는 바뀌지 않는다 — `dashboard.py`는
+`stock_utils.py`가 이미 제공하는 함수(`read_watchlist`/`load_price_history`/
+`fetch_naver_current_price`/`build_price_chart` 등)를 그대로 재사용하는 얇은 레이어라, 텔레그램
+알림 로직을 다루는 6~8주차 실습을 마친 학생이라면 추가 개념 없이 읽을 수 있는 수준이다. 자세한
+논의 과정은 `ROADMAP.md`의 "전략적 재검토" 절 참고.
+
 ## 1. 수업 개요
 
 빅데이터 파이썬 수업의 실습 프로젝트로, "관심종목의 현재가와 최근 거래일 종가 추이를
-텔레그램으로 자동 전송하는 봇"을 처음부터 끝까지 직접 만든다. 단순 문법 실습에 그치지 않고,
-**외부 API 연동 → 자동화 배포(GitHub Actions) → 클라우드 DB 연동(Turso)**까지 이어지는
-실무형 데이터 파이프라인의 축소판을 13주에 걸쳐 단계적으로 완성한다.
+텔레그램으로 자동 전송하고, 대시보드로도 확인할 수 있는 봇"을 처음부터 끝까지 직접 만든다.
+단순 문법 실습에 그치지 않고, **외부 API 연동 → 자동화 배포(GitHub Actions) → 클라우드 DB
+연동(Turso)**까지 이어지는 실무형 데이터 파이프라인의 축소판을 13주에 걸쳐 단계적으로 완성한다.
+"수집(collection) → 저장(DB) → 확인(push 또는 pull)"이 데이터의 출처·경로와 무관하게 하나의
+파이프라인으로 이어진다는 것을 체감하는 것이 핵심이다.
 
 수업은 "한 번에 완성된 코드"를 보여주는 대신, 실제 개발 과정에서 마주치는 문제(오류 메시지,
 예상과 다른 실행 결과, 환경 차이로 인한 버그)를 학생이 직접 겪고 해결하는 방식으로 진행한다.
@@ -127,6 +140,10 @@
 **13주 — Turso 마이그레이션 & 최종 점검**
 - 학습 내용: `libsql-client`로 DB 연동, `load_price_history`/`update_price_history`를 SQL 쿼리로 교체, 워크플로에서 git 커밋 스텝 제거, 전체 파이프라인 종단간 테스트 및 발표
 - 관련 파일/실습: `stock_utils.py` DB 버전 완성, 최종 데모
+- 심화(선택): `dashboard.py`(Streamlit)를 함께 열어, `stock_utils.py`의 `load_price_history()`를
+  DB 버전으로 바꾸는 순간 텔레그램 알림과 대시보드 양쪽에 동시에 반영되는 것을 직접 확인해본다 —
+  "공용 함수 모듈을 왜 분리했는가"(7주차)의 효과가 저장 방식이 바뀌는 순간에도 그대로 유지된다는
+  것을 보여주는 실습이다.
 
 **설계 의도**: 2~3주에 pandas·matplotlib **문법 자체**를 프로젝트와 분리해 먼저 익히고,
 6주·8주에 그 지식을 실제 프로젝트 코드에 적용하는 2단계 구성으로 바꿨다 — 처음 API/텔레그램

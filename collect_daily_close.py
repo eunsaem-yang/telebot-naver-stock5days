@@ -1,16 +1,16 @@
 """
 장마감 직후 하루 1회 실행되는 스크립트.
-관심종목(watchlist.csv)의 그날 최종 종가를 네이버 API로 조회해 price_history.json에
-누적 저장한다 (종목별 최근 15거래일치만 유지). notify_stock_price.py는 이 파일을 읽기만
-하고 직접 API를 재조회하지 않는다 — 자세한 배경은 ROADMAP.md의 "기능 3" 참고.
+관심종목(watchlist.csv)의 그날 최종 종가를 네이버 API로 조회해 Turso DB의 price_history
+테이블에 누적 저장한다 (종목별 최근 15거래일치만 유지, 오래된 행은 삭제). notify_stock_price.py는
+이 DB를 읽기만 하고 직접 API를 재조회하지 않는다 — 자세한 배경은 ROADMAP.md의 "기능 3"·"Turso
+마이그레이션" 절 참고. 예전에는 price_history.json을 저장소에 직접 커밋해 상태를 유지했지만,
+DB 자체가 영속 저장소이므로 이제 git 커밋 스텝이 필요 없다.
 """
 from datetime import datetime
 
 from stock_utils import (
     is_trading_day,
     read_watchlist,
-    load_price_history,
-    save_price_history,
     update_price_history,
     fetch_naver_current_price,
 )
@@ -24,7 +24,6 @@ if watchlist_codes is None:
     exit()
 
 today_str = datetime.now().strftime("%Y%m%d")
-history = load_price_history()
 
 print(f"🚀 [{today_str}] 종가 수집 시작...")
 
@@ -40,7 +39,7 @@ for code in watchlist_codes:
         print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
         continue
 
-    update_price_history(history, code, today_str, info["price"])
+    update_price_history(code, today_str, info["price"])
     collected += 1
     print(f"✅ [{code}] {info['name']} 종가 {info['price']:,}원 기록")
 
@@ -48,5 +47,4 @@ if collected == 0:
     print("❌ 기록된 종가가 하나도 없습니다.")
     exit()
 
-save_price_history(history)
-print(f"🎉 종가 히스토리를 저장했습니다 ({collected}/{len(watchlist_codes)}종목).")
+print(f"🎉 종가 히스토리를 Turso DB에 저장했습니다 ({collected}/{len(watchlist_codes)}종목).")

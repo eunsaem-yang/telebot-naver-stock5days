@@ -1,7 +1,8 @@
 """
-Streamlit 프로토타입: 텔레그램 push 대신, 사용자가 원할 때 웹페이지를 열어 확인하는 방식을
-체험해보기 위한 가벼운 대시보드. price_history.json/네이버 API를 그대로 재사용하고, DB
-연동 전 "Pull 방식이 실제로 어떤 느낌인지"만 빠르게 확인하는 용도라 아직 Turso는 붙이지 않았다.
+Streamlit 대시보드: 텔레그램 push 대신, 사용자가 원할 때 웹페이지를 열어 확인하는 Pull 방식.
+watchlist.csv·네이버 API·Turso DB(load_price_history)를 notify_stock_price.py와 그대로
+공유해서 쓴다 — push(텔레그램)와 pull(대시보드) 두 경로가 동일한 데이터·저장소를 바라보므로
+어느 쪽으로 확인해도 같은 내용을 본다.
 """
 import streamlit as st
 

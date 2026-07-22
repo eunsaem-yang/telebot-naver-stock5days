@@ -1,7 +1,7 @@
 """
 하루 3회(장이 열리는 날 오전 10시/12시/2시) 실행되는 알림 스크립트.
 관심종목(watchlist.csv)의 현재가를 네이버 API로 조회해 텔레그램 텍스트 메시지로 보내고,
-collect_daily_close.py가 미리 저장해 둔 price_history.json의 최근 15거래일 종가에 오늘 분봉
+collect_daily_close.py가 미리 저장해 둔 Turso DB의 최근 15거래일 종가에 오늘 분봉
 (네이버 API로 즉시 조회, 저장하지 않음)을 이어붙인 추이 그래프를 종목별로 그려 sendPhoto로
 전송한다. 과거 종가 자체는 매번 재조회하지 않는다.
 과거 data.go.kr 기반 구현과 그 한계는 ROADMAP.md 참고.

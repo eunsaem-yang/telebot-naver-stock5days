@@ -804,3 +804,95 @@ git push 감지 재배포(앱 재실행 수준)만으로는 apt 패키지 설치
 - **최종 해결**: 홈 화면 앱 아이콘 설치를 포기하고, 브라우저 **즐겨찾기(북마크)**로 저장하는 방식으로
   전환. 이 방식은 WebAPK를 만들지 않아 보안 경고 없이 항상 동작한다. 접근 단계가 한 단계(브라우저 →
   즐겨찾기 탭) 늘어나는 대신 안정적이라는 트레이드오프를 감수하기로 했다.
+
+## Turso 마이그레이션 착수 (코드 구현 완료, 2026-07-22)
+
+"Turso+Streamlit" 방향을 최종 확정한 뒤, 커리큘럼 12·13주가 이미 목표로 삼고 있던 Turso
+마이그레이션에 착수했다.
+
+### 구현 내용
+
+- `stock_utils.py`의 `load_price_history()`/`update_price_history()`를 JSON 파일 I/O에서
+  `libsql-client` 기반 SQL 쿼리로 교체. `save_price_history()`는 완전히 제거했다 — DB 쓰기는
+  `update_price_history()` 호출 시점에 즉시 커밋되므로, JSON 방식처럼 "메모리에서 다 수정한 뒤
+  파일 통째로 다시 쓰는" 별도의 저장 단계 자체가 필요 없어졌다 (파일 기반 저장과 DB 기반 저장의
+  구조적 차이를 그대로 보여주는 지점이라 커리큘럼 13주에도 그대로 활용 가능).
+- 스키마: `price_history(code TEXT, date TEXT, close INTEGER, PRIMARY KEY (code, date))`.
+  같은 (종목, 날짜) 조합은 `INSERT ... ON CONFLICT DO UPDATE`로 덮어쓰고, 종목별로 최근
+  `NUM_HISTORY_DAYS`(15)개보다 오래된 행은 `DELETE`로 정리한다. 이 업서트/정리 로직은 로컬
+  SQLite 파일(`file:` URL)로 실제 실행해 정상 동작을 확인했다 — libSQL이 SQLite와 프로토콜
+  호환이라 원격 Turso 없이도 로직 검증이 가능했다.
+- `collect_daily_close.py`: `load_price_history()`/`save_price_history()` 호출 자체가 필요 없어져
+  제거하고, 종목별로 `update_price_history()`만 바로 호출하도록 단순화.
+- `notify_stock_price.py`/`dashboard.py`: `load_price_history()` 시그니처(인자 없음, 반환 형태
+  동일)가 그대로 유지되므로 호출부는 수정할 필요가 없었다 — DB 마이그레이션이 저장 계층
+  안쪽으로만 국한되도록 설계한 효과.
+- `price_history.json` 파일은 삭제했다 (git 히스토리로 복구 가능). 더 이상 어떤 스크립트도
+  이 파일을 읽거나 쓰지 않는다.
+- `.github/workflows/collect_close.yml`에서 "`price_history.json` 변경분을 저장소에 직접
+  커밋·푸시"하던 스텝과 `permissions: contents: write`를 제거했다 — Turso DB 자체가 영속
+  저장소이므로 GitHub Actions가 저장소에 다시 쓸 이유가 없어졌다. `notify.yml`과
+  `check_manual_trigger.yml`의 `notify` job에는 `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` env를
+  추가했다 (둘 다 `load_price_history()`를 거치는 `notify_stock_price.py`를 실행하므로).
+- 의도적으로 하지 않은 것: `price_history.json`에 남아있던 기존 데이터를 Turso로 옮기는 백필
+  스크립트는 작성하지 않았다. "기능 5" 절에서 이미 사용자가 짚었던 것과 같은 이유다 —
+  "파일 내용을 DB로 옮기는 것"은 정적 데이터 이전일 뿐이고, DB 단원의 핵심은 "수집(collection)"
+  자체를 가르치는 것이므로, `collect_daily_close.py`가 매일 실행되며 자연스럽게 히스토리가
+  다시 쌓이도록 두었다.
+
+### 사용자가 직접 해야 할 것 (코드로 자동화 불가)
+
+Turso 계정 생성과 DB 발급은 브라우저 로그인(`turso auth login`/`signup`)이 필요해 에이전트가
+대신할 수 없다 — 과거 텔레그램 봇 토큰, GitHub 저장소 생성과 동일한 종류의 "사용자만 할 수
+있는" 단계다.
+
+- [x] `turso auth signup`(최초 가입) → `turso db create telebot-stock` → `turso db show
+      telebot-stock --url` / `turso db tokens create telebot-stock`로 `TURSO_DATABASE_URL`/
+      `TURSO_AUTH_TOKEN` 발급 (`README.md` "4. 내 Turso DB 만들기" 절 참고, 과정에서 겪은
+      문제는 아래 "알려진 이슈" 참고)
+- [x] 로컬 `.env`에 두 값 등록, `collect_daily_close.py` 실제 실행으로 Turso DB 저장·조회까지
+      검증 완료 (2026-07-22)
+- [x] 사용자가 CLI 인증(계정 토큰 노출 우려로 로그아웃했던 세션)부터 직접 다시 로그인하고,
+      기존 DB를 `turso db destroy`로 지운 뒤 같은 이름(`telebot-stock`)으로 재생성 → URL/토큰
+      재발급 → `.env` 갱신까지 전 과정을 사용자가 직접 수행, `collect_daily_close.py`로 재검증
+      완료 (2026-07-22). 이번엔 토큰을 대화창에 붙여넣지 않고 본인 터미널에서만 다뤘다.
+- [ ] GitHub 저장소 Settings → Secrets에 두 값 등록 (`notify.yml`/`collect_close.yml`/
+      `check_manual_trigger.yml`이 사용)
+- [ ] Streamlit Community Cloud 앱 Settings → Secrets에 두 값 등록 (`dashboard.py`가 사용)
+
+**현재 상태**: 로컬 실행은 Turso DB 연동까지 완전히 검증됐다. GitHub Actions와 Streamlit
+Cloud는 아직 Secrets 등록 전이라, 그 전까지는 `notify`/`collect_close` 워크플로와 배포된
+대시보드가 DB 연결 실패로 종가 히스토리 관련 기능만 조용히 비어 있는 상태로 동작한다(코드가
+예외를 잡아 로그만 남기고 계속 진행하도록 방어적으로 작성돼 있어, 텔레그램 메시지 전송 자체가
+막히지는 않는다).
+
+### 알려진 이슈: 계정 가입 브라우저 콜백 타임아웃 → `--headless`로 우회 (2026-07-22)
+
+`turso auth signup` 실행 시 브라우저는 열리지만 "Waiting for authentication..."에서
+`Error: authentication timed out, try again`로 실패했다. CLI가 로컬호스트로 열어둔 콜백
+포트로 브라우저가 응답을 못 돌려준 것으로 보인다(방화벽/보안 소프트웨어가 원인일 가능성).
+`turso auth signup --headless`로 재시도하면 로컬호스트 콜백 대신 웹페이지에 발급된 액세스
+토큰을 `turso config set token "..."`으로 직접 붙여넣는 방식이라 이 문제를 우회할 수 있었다.
+
+**주의**: 이 방식으로 발급되는 토큰은 Turso 계정 전체를 관리할 수 있는 토큰이다. 이 과정에서
+사용자가 토큰 값을 대화창에 그대로 붙여넣는 일이 있었는데, 대화 기록에서 사후에 지울 수는
+없으므로(에이전트에 그런 기능이 없음) **터미널에서 직접 `turso config set token`을 실행하는
+쪽을 원칙으로 하고, 부득이 노출됐다면 GitHub Settings → Applications에서 해당 OAuth 연동을
+Revoke하는 것으로 대응**했다. DB 단위로 발급하는 `TURSO_AUTH_TOKEN`(`turso db tokens create`)은
+이 계정 토큰과 스코프가 분리돼 있어 영향받지 않는다.
+
+### 알려진 이슈: `libsql://`(WebSocket) 연결이 일부 환경에서 무한 대기 (2026-07-22)
+
+로컬 검증 중 `load_price_history()`/`update_price_history()` 호출이 에러도 없이 응답 없이
+멈추는 증상을 발견했다. `TURSO_DATABASE_URL`(`turso db show --url`이 주는 `libsql://` 스킴)이
+`libsql_client`에서 WebSocket(`wss://`) 연결로 해석되는데, 이 WebSocket 핸드셰이크가 실행
+환경(방화벽/네트워크 정책)에 따라 타임아웃 없이 그냥 멈춰버리는 것으로 확인됐다. 반면 같은
+호스트에 `curl https://...`로는 즉시 정상 응답(200)이 왔다.
+
+**해결**: `stock_utils.py`의 `_get_turso_client()`가 접속 직전에 URL을 `libsql://` → `https://`로
+치환하도록 수정했다. `libsql-client` 문서상 `http`/`https` 스킴은 `transaction()` API를 못 쓰는
+대신 WebSocket 핸드셰이크 자체가 없는데, 이 프로젝트는 각 SQL 문을 독립적으로 실행하고
+`transaction()`을 쓰지 않으므로 기능 손실 없이 적용 가능했다. 학교 네트워크처럼 WebSocket을
+막는 방화벽 환경에서 학생들이 겪을 수 있는 문제이기도 해서, `.env`에는 그대로 `turso db show`가
+주는 `libsql://` 형식을 넣게 하고 변환은 코드가 알아서 하도록 했다(사용자가 스킴을 신경 쓸
+필요 없음).

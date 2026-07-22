@@ -24,7 +24,6 @@ from dotenv import load_dotenv
 # python-dotenv/holidays만 설치하는 것도 이 때문에 가능해진다 (ROADMAP.md "기능 4" 참고).
 
 WATCHLIST_FILE = "watchlist.csv"
-PRICE_HISTORY_FILE = "price_history.json"
 NUM_HISTORY_DAYS = 15
 MANUAL_TRIGGER_TEXT = "📊 지금 현재가 확인"  # 리플라이 키보드 버튼 라벨이자 트리거 판별 문자열
 MANUAL_TRIGGER_KEYBOARD = {"keyboard": [[{"text": MANUAL_TRIGGER_TEXT}]], "resize_keyboard": True}
@@ -36,6 +35,8 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
 _KR_HOLIDAYS = holidays.KR()
 
@@ -76,32 +77,68 @@ def read_watchlist(path: str = WATCHLIST_FILE) -> list:
         return None
 
 
-def load_price_history(path: str = PRICE_HISTORY_FILE) -> dict:
-    """{code: [{"date": "YYYYMMDD", "close": 가격}, ...]} 형태의 종가 히스토리를 읽습니다."""
-    if not os.path.exists(path):
-        return {}
+def _get_turso_client():
+    """Turso(libSQL) DB 클라이언트를 생성하고, price_history 테이블이 없으면 만듭니다.
+    libsql_client는 여기서만 필요한 무거운(네트워크 연결) 의존성이라 모듈 최상단이 아니라
+    이 함수 안에서 import한다 (pandas/matplotlib과 동일한 이유, 파일 상단 주석 참고)."""
+    import libsql_client
+
+    if not TURSO_DATABASE_URL:
+        raise RuntimeError("TURSO_DATABASE_URL 환경변수가 설정되지 않았습니다.")
+
+    # turso db show --url이 돌려주는 libsql:// 스킴은 WebSocket(wss://)으로 연결되는데,
+    # 학교/사내 방화벽이나 일부 실행 환경에서 WebSocket이 막혀 있으면 에러조차 없이 그냥
+    # 멈춰버린다(타임아웃 없이 무한 대기). transaction() API를 쓰지 않아 HTTP만으로도 충분하므로,
+    # 항상 https://로 바꿔 접속해 이 문제를 원천적으로 피한다.
+    url = TURSO_DATABASE_URL.replace("libsql://", "https://", 1)
+    client = libsql_client.create_client_sync(url, auth_token=TURSO_AUTH_TOKEN)
+    client.execute(
+        "CREATE TABLE IF NOT EXISTS price_history ("
+        "code TEXT NOT NULL, date TEXT NOT NULL, close INTEGER NOT NULL, "
+        "PRIMARY KEY (code, date))"
+    )
+    return client
+
+
+def load_price_history() -> dict:
+    """Turso DB에서 종목별 종가 히스토리를 읽어 {code: [{"date": "YYYYMMDD", "close": 가격}, ...]}
+    형태(날짜 오름차순)로 반환합니다. 예전에는 이 함수가 price_history.json을 읽었지만, Turso
+    마이그레이션 이후로는 DB에서 직접 SELECT한다 (ROADMAP.md 참고)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with _get_turso_client() as client:
+            result = client.execute("SELECT code, date, close FROM price_history ORDER BY code, date")
     except Exception as e:
-        print(f"❌ '{path}' 읽기 실패: {e}")
+        print(f"❌ Turso DB에서 종가 히스토리를 읽지 못했습니다: {e}")
         return {}
 
+    history: dict = {}
+    for code, date, close in result.rows:
+        history.setdefault(code, []).append({"date": date, "close": close})
+    return history
 
-def save_price_history(history: dict, path: str = PRICE_HISTORY_FILE) -> None:
-    """종가 히스토리를 JSON 파일로 저장합니다."""
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
 
-
-def update_price_history(history: dict, code: str, date_str: str, close_price: int,
+def update_price_history(code: str, date_str: str, close_price: int,
                           num_days: int = NUM_HISTORY_DAYS) -> None:
-    """종목의 종가 히스토리에 오늘자 종가를 추가합니다. 같은 날짜가 이미 있으면 덮어쓰고,
-    최근 num_days개만 남깁니다."""
-    entries = {entry["date"]: entry["close"] for entry in history.get(code, [])}
-    entries[date_str] = close_price
-    sorted_dates = sorted(entries.keys())[-num_days:]
-    history[code] = [{"date": d, "close": entries[d]} for d in sorted_dates]
+    """종목의 종가 히스토리에 오늘자 종가를 Turso DB에 즉시 저장합니다. 같은 날짜가 이미 있으면
+    덮어쓰고, 종목별로 최근 num_days개만 남기고 오래된 행은 삭제합니다.
+
+    JSON 파일 방식과 달리 이 함수 호출 자체가 DB에 바로 반영되므로(트랜잭션 커밋), 예전의
+    load_price_history() → 메모리에서 수정 → save_price_history()로 파일 통째로 다시 쓰기 같은
+    별도의 "저장" 단계가 필요 없다 — 이것이 파일 기반 저장과 DB 기반 저장의 핵심 차이다."""
+    try:
+        with _get_turso_client() as client:
+            client.execute(
+                "INSERT INTO price_history (code, date, close) VALUES (?, ?, ?) "
+                "ON CONFLICT (code, date) DO UPDATE SET close = excluded.close",
+                [code, date_str, close_price],
+            )
+            client.execute(
+                "DELETE FROM price_history WHERE code = ? AND date NOT IN ("
+                "SELECT date FROM price_history WHERE code = ? ORDER BY date DESC LIMIT ?)",
+                [code, code, num_days],
+            )
+    except Exception as e:
+        print(f"❌ [{code}] Turso DB에 종가 저장 실패: {e}")
 
 
 def fetch_naver_current_price(code: str) -> dict:

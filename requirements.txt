@@ -4,3 +4,4 @@ pandas
 matplotlib
 holidays
 streamlit
+libsql-client
