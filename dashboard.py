@@ -4,7 +4,17 @@ watchlist.csv·네이버 API·Turso DB(load_price_history)를 notify_stock_price
 공유해서 쓴다 — push(텔레그램)와 pull(대시보드) 두 경로가 동일한 데이터·저장소를 바라보므로
 어느 쪽으로 확인해도 같은 내용을 본다.
 """
+import os
 import streamlit as st
+
+# Streamlit Community Cloud의 Secrets는 st.secrets로 들어오는데, stock_utils.py는 로컬 .env와
+# 동일하게 os.environ만 읽으므로 여기서 미리 os.environ에 반영해준다. 반드시 stock_utils import
+# 이전에 실행해야 한다 — stock_utils가 모듈 로드 시점에 환경변수를 읽기 때문이다.
+try:
+    for key, value in st.secrets.items():
+        os.environ.setdefault(key, str(value))
+except Exception:
+    pass  # secrets.toml이 없는 로컬 실행 등에서는 조용히 건너뛴다 (.env로 대체됨)
 
 from stock_utils import (
     read_watchlist,
@@ -17,6 +27,21 @@ from stock_utils import (
 
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
 st.title("📈 관심종목 현재가 대시보드")
+
+# TODO(임시 진단용, 원인 확인 후 삭제): 네이버 API 조회 실패 원인을 화면에 직접 표시
+with st.expander("🔍 진단 정보 (임시)"):
+    import requests as _requests
+    try:
+        _r = _requests.get(
+            "https://m.stock.naver.com/api/stock/005930/basic",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        st.write("상태 코드:", _r.status_code)
+        st.code(_r.text[:1000])
+    except Exception as _e:
+        st.write("예외 발생:")
+        st.exception(_e)
 
 if st.button("🔄 새로고침"):
     st.rerun()
