@@ -766,3 +766,41 @@ Streamlit Cloud 접근 문제와 Actions 분당 한도 문제를 동시에 해�
 
 전환 후 재시도 → **배포 성공** ("Your app is in the oven" 빌드 시작 화면 확인). 새 저장소 이름
 버그와 private 접근 권한 문제 둘 다 해소됨을 확인했다.
+
+### 배포 후 발견한 버그: 그래프 제목 한글 깨짐 → `packages.txt` 추가, 수동 Reboot 필요 (2026-07-22)
+
+배포된 대시보드를 실제로 열어보니 그래프 위 제목(`build_price_chart()`의 `ax.set_title(...)`)의
+한글이 깨져 보였다.
+
+**원인**: `stock_utils.py`의 `plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic",
+"AppleGothic"]`(Windows/GitHub Actions Ubuntu/macOS를 순서대로 겨냥한 목록)에 있는 폰트가 Streamlit
+Cloud의 Linux 컨테이너에는 하나도 설치돼 있지 않았다. GitHub Actions에서는 `sudo apt-get install -y
+fonts-nanum`으로 워크플로가 직접 설치했지만(`.github/workflows/notify.yml`,
+`check_manual_trigger.yml`), Streamlit Cloud는 워크플로 스크립트를 못 건드리는 대신 저장소 루트의
+**`packages.txt`** 파일을 읽어 apt 패키지를 자동 설치해준다.
+
+**해결**: 저장소 루트에 `packages.txt`를 새로 만들고 `fonts-nanum` 한 줄을 추가, 커밋·push했다
+(`1cda330`).
+
+**추가로 겪은 문제: push 직후엔 반영되지 않음.** push 후 대시보드를 새로고침해봐도 한글이 계속
+깨져 있었다. `packages.txt`/`requirements.txt`를 이미 떠 있는 앱에 나중에 추가한 경우, 일반적인
+git push 감지 재배포(앱 재실행 수준)만으로는 apt 패키지 설치 단계가 다시 돌지 않는 것으로 보인다.
+**Manage app → ⋮(점 3개) 메뉴 → "Reboot app"으로 수동으로 완전 재빌드를 강제한 뒤에야** 한글이
+정상 표시되는 것을 확인했다. 앞으로 `packages.txt`/`requirements.txt`를 바꿀 때 자동 반영이 안
+되면 이 수동 Reboot을 우선 시도하면 된다.
+
+### 모바일 홈 화면 접근 시도: PWA 아이콘 설치 실패 → 즐겨찾기로 우회 (2026-07-22)
+
+배포 확인 후 모바일(안드로이드, 삼성 Galaxy S24)에서 대시보드에 빠르게 접근하는 방법을 시도했다.
+
+- Chrome "홈 화면에 추가": 아이콘은 생겼지만 이름이 항상 **"Streamlit"**로 고정되고 편집 불가.
+  Streamlit Cloud가 내려주는 PWA 매니페스트의 앱 이름을 그대로 쓰기 때문으로, `dashboard.py`의
+  `st.set_page_config(page_title=...)`로는 영향을 줄 수 없는 영역이다 (Community Cloud가 커스텀
+  매니페스트/HTML 삽입을 허용하지 않음).
+- 기존 아이콘 삭제 후 **삼성 인터넷**으로 재시도(이름 편집 필드 기대) → **"안전하지 않은 앱"** 경고로
+  추가 자체가 취소됨. 이는 Play Protect가 `streamlit.app`처럼 많은 앱이 공유하는 도메인에서 생성된
+  WebAPK(PWA 설치 패키지)를 낯설다고 판단해 차단하는 것으로, 코드/설정으로 해결할 수 있는 부분이
+  아니다.
+- **최종 해결**: 홈 화면 앱 아이콘 설치를 포기하고, 브라우저 **즐겨찾기(북마크)**로 저장하는 방식으로
+  전환. 이 방식은 WebAPK를 만들지 않아 보안 경고 없이 항상 동작한다. 접근 단계가 한 단계(브라우저 →
+  즐겨찾기 탭) 늘어나는 대신 안정적이라는 트레이드오프를 감수하기로 했다.
