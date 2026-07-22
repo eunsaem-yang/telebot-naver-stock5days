@@ -139,7 +139,7 @@ data.go.kr 없이도 "최근 5일 종가" 추이를 만들려면, 하루 세 번
 ### 사용자가 직접 해야 할 것 (코드로 자동화 불가)
 
 - [x] 이 프로젝트를 git 저장소로 초기화하고 `main` 브랜치로 첫 커밋 완료 (로컬 커밋 2개: `15a3bf8`, `68d5f17`)
-- [x] GitHub에 저장소 생성 후 push 완료 (`github.com/eunsaem-yang/-telebot-naver-stock5days`,
+- [x] GitHub에 저장소 생성 후 push 완료 (`github.com/eunsaem-yang/telebot-naver-stock5days`,
       로컬 환경에 `gh` CLI가 없어 사용자가 웹사이트에서 직접 저장소 생성 → URL 공유 → `git push` 순으로 진행)
 - [x] GitHub 저장소 Settings → Secrets에 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 등록 완료
       (`PUBLIC_DATA_PORTAL_KEY`는 더 이상 필요 없음)
@@ -199,6 +199,211 @@ GitHub Actions의 `schedule` 트리거만으로는 실행을 보장할 수 없�
 
 아직 실제 PAT 발급/cron-job.org 작업 등록은 진행하지 않았다. 방향성만 기록해두고, 착수 여부는
 추후 결정한다.
+
+### 재발 확인: 2026-07-22에도 동일 증상, `check_manual_trigger.yml`까지 영향
+
+2026-07-22(수) 10:05 KST 슬롯에서도 `notify.yml`의 자동 실행이 발동하지 않았고, 같은 날 사용자가
+텔레그램 버튼/`/notify` 명령어로 수동 트리거를 눌러도 응답이 없었다. 확인해보니 감지 역할인
+`check_manual_trigger.yml`(평일 5분 간격 폴링)도 전날 오후 이후 단 한 번도 실행되지 않은 상태였다
+— 즉 트리거를 감지할 워크플로 자체가 멈춰 있어서, 버튼을 누르든 명령어를 치든 반응이 없었던 것.
+`schedule` 트리거의 신뢰성 문제가 `notify.yml` 하나만이 아니라 **폴링 방식에 의존하는 기능 4
+전체**에 그대로 전이된다는 걸 재확인했다.
+
+### 수업 진행을 위한 결정 사항: cron-job.org 대신 수동 `workflow_dispatch` 안내
+
+위 재발을 계기로 "학생이 개발을 완료해도 결과를 확인할 수 없으면 수업 진행이 막힌다"는 문제를
+논의했다. cron-job.org 이중 트리거(위 대응 방향)를 `check_manual_trigger.yml`에도 확장 적용하는
+안을 검토했으나, **수업 목적으로는 채택하지 않기로 했다**:
+
+- cron-job.org는 학생 각자가 자기 저장소마다 GitHub PAT를 발급해 제3자 서비스에 등록해야 하는데,
+  이 설정 자체가 수업 시간을 잡아먹고 보안 리스크(제3자 서비스에 PAT 노출)도 매 학생마다 반복된다.
+- 수업에서 실제로 필요한 건 "매일 빠짐없이 정시에 자동 발송"이 아니라 "학생이 개발을 마쳤을 때
+  즉시 결과를 확인"하는 것이다. 이 요구는 이미 두 워크플로 모두에 걸려 있는 `workflow_dispatch`
+  트리거로 충분히 해결된다 — 지금까지 기록상 `workflow_dispatch`로 실행한 런은 전부 성공했다
+  (best-effort인 `schedule`과 달리 `workflow_dispatch`는 즉시·확실하게 실행됨).
+
+**결정**: 수업 중 검증은 GitHub Actions 탭의 **"Run workflow" 버튼**(또는 `gh workflow run
+notify.yml` / `gh workflow run check_manual_trigger.yml`)으로 안내한다. cron-job.org 이중
+트리거는 "실제 프로덕션에서 매일 자동 알림이 안정적으로 와야 한다"는 요구가 별도로 생겼을 때
+선택적으로 재검토하는 것으로 미룬다 (착수 안 함, 방향성만 유지).
+
+### 후속 논의: "수동 Run workflow"와 "자동화"는 서로 다른 문제
+
+위 결정 직후, "학생이 PC 없이도 스케줄에 의해 자동으로 데이터를 받는다"는 것 자체가 이 프로젝트의
+핵심 목적이라는 점을 다시 짚었다. 정리하면 두 문제는 다르다:
+
+- **지금 당장 결과를 확인하고 싶다 (수업 중 검증/채점)** → `workflow_dispatch`(Run workflow)로
+  충분히 해결됨. 사람이 그 순간 직접 눌러야 한다는 건 자동화가 아니라 수동 확인 수단일 뿐이다.
+- **PC/사람 개입 없이 매일 자동으로 온다 (원래 목적)** → 이건 여전히 `schedule` 트리거의 신뢰성
+  문제에 그대로 노출돼 있고, `workflow_dispatch`로는 대체되지 않는다.
+
+이 신뢰성 문제는 GitHub의 유료 요금제로도 해결되지 않는다 — 공식 문서에 `schedule`은 Free/Pro/
+Team/Enterprise Cloud 전부 동일하게 "best-effort"라고 명시돼 있고, 원인이 컴퓨팅 자원 부족이
+아니라 GitHub 중앙 스케줄 디스패처가 부하 시 이벤트 자체를 스킵하는 설계이기 때문이다. 진짜
+신뢰도를 높이려면 이 디스패처를 거치지 않고 외부에서 직접 API(`workflow_dispatch`)를 호출하는
+방식(cron-job.org 등)이 필요하다는 결론에 다시 도달했다. **안정성을 끌어올리는 방향으로 의견이
+모였고, cron-job.org 도입 여부는 아래 모바일 실습 결과를 본 뒤 최종 결정하기로 했다.**
+
+### 모바일에서 수동 트리거 실습 결과 (2026-07-22, 두 방법 모두 검증 완료)
+
+cron-job.org 도입을 최종 결정하기 전에, "학생 입장에서 수동 트리거가 얼마나 번거로운지"를
+안드로이드/아이폰에서 직접 실습해봤다. **방법 1, 방법 2 모두 실제로 텔레그램 메시지 수신까지
+확인됨.**
+
+#### 방법 1: GitHub 웹사이트 "Run workflow" 버튼 (브라우저만 있으면 됨)
+
+1. 폰 브라우저에서 `github.com` 접속 → 로그인
+2. 저장소(`github.com/eunsaem-yang/telebot-naver-stock5days`) 이동
+3. `☰` 메뉴 → **Actions** 탭
+4. 워크플로 목록에서 **"관심종목 현재가 알림"** 탭
+5. 오른쪽 위 **"Run workflow"** 드롭다운 → 브랜치 `main` 확인 → 초록색 **"Run workflow"** 버튼 탭
+6. 화면 당겨 새로고침 → 새 실행 항목 확인
+
+→ **실습 결과: 성공, 텔레그램 메시지 수신 확인.** 로그인 상태만 유지되면 이후엔 몇 번의 탭만으로
+끝나 수업 중 검증용으로 실용적.
+
+#### 방법 2: `gh workflow run notify.yml` (터미널 앱 설치 필요, 최초 1회만 로그인)
+
+**Android (Termux)**
+1. Play 스토어에서 **Termux** 설치
+2. `pkg update && pkg upgrade`
+3. `pkg install gh`
+4. `gh auth login` → `GitHub.com` → `HTTPS` → `Login with a web browser` 선택
+5. 터미널에 뜨는 `! First copy your one-time code: XXXX-XXXX`를 복사 → Enter로 브라우저 열기 →
+   `github.com/login/device`에서 코드 입력해 인증
+6. `gh workflow run notify.yml --repo eunsaem-yang/telebot-naver-stock5days`
+
+→ **실습 결과: 성공, 텔레그램 메시지 수신 확인.** `gh auth login`은 최초 1회만 필요하고(토큰이
+Termux 앱 저장공간에 남아있는 한 유지), 이후엔 마지막 명령어 한 줄이면 됨.
+
+**iPhone (iSH)**
+1. App Store에서 **iSH**(Alpine Linux 에뮬레이터, x86 32비트라 다소 느림) 설치
+2. `apk update`
+3. `apk add github-cli` (iSH 아키텍처 제약으로 패키지가 없을 수 있음 — 이 경우 `curl`로 GitHub
+   REST API를 직접 호출하는 방식으로 대체 가능)
+4. `gh auth login` → 인증
+5. `gh workflow run notify.yml --repo eunsaem-yang/telebot-naver-stock5days`
+
+→ iPhone 쪽은 실제 실습·검증까지는 하지 않음 (Android로 검증 완료, 원리는 동일).
+
+#### 결론
+
+두 방법 다 모바일에서 실제로 동작하는 걸 확인했지만, 체감 난이도는 다르다: 방법 1은 브라우저
+로그인만 되어 있으면 매번 몇 번의 탭으로 끝나고, 방법 2는 최초 설정(앱 설치 → 패키지 설치 →
+`gh auth login`)이 무겁지만 그 이후엔 명령어 한 줄로 끝난다. 두 방법 모두 **"학생이 그 순간
+직접 조작해야 한다"는 근본적 한계는 동일**하므로, cron-job.org 도입 여부 결정에는 이 실습
+결과보다 위 "후속 논의"에서 정리한 신뢰성 문제 자체가 더 중요한 판단 기준이다.
+
+### cron-job.org 이중 트리거 실제 도입 (2026-07-22, 검증 완료)
+
+모바일 실습 이후 "안정성을 끌어올리는 방향"으로 결정하고, 검토만 해뒀던 cron-job.org 이중
+트리거를 실제로 구축했다.
+
+#### 1. Fine-grained PAT 발급
+
+`github.com/settings/tokens?type=beta`에서 발급:
+- Repository access: **Only select repositories** → 이 저장소 하나만
+- Permissions → **Actions: Read and write**만 부여, 나머지는 전부 No access
+- Expiration을 무기한이 아니라 기한을 두어 설정 (주기적 재발급 필요 — 아래 "남은 과제" 참고)
+
+PAT는 Bearer 토큰 방식(`Authorization: Bearer <token>`)으로 쓰이며, 발급 화면에서 **한 번만
+표시**되므로 그 자리에서 안전한 곳에 복사해둬야 한다. `.env`의 비밀값과 동일한 무게로 다뤄야
+하고, 저장소 코드/커밋에는 절대 남기면 안 된다.
+
+#### 2. cron-job.org에 Cron Job 2개 등록
+
+**공통 헤더** (`notify.yml`/`check_manual_trigger.yml` 두 작업 모두 동일, 토큰도 동일 —
+저장소 단위 권한이라 워크플로별로 나눌 필요 없음):
+```
+Authorization: Bearer <PAT>
+Accept: application/vnd.github+json
+```
+- cron-job.org 화면의 **"Requires HTTP authentication"**(Basic Auth 전용 별도 기능)은 켜지
+  않는다 — 이건 헤더 방식과 별개 기능이라, 둘 다 채우면 `Authorization` 헤더가 충돌해 요청이
+  실패할 수 있다.
+- Request method: `POST`, Request body: `{"ref":"main"}`
+
+**작업 1 (`notify.yml`)**: URL 끝을 `.../actions/workflows/notify.yml/dispatches`로, 스케줄은
+KST 10:05/12:05/14:05(평일)에 맞춰 등록.
+
+**작업 2 (`check_manual_trigger.yml`)**: URL 끝을 `check_manual_trigger.yml/dispatches`로.
+스케줄은 "Every 5 minutes" 같은 **간편 프리셋으로는 시간대(09~19시)·요일(평일) 제한 옵션 자체가
+비활성화/미표시**되는 걸 확인했다 — cron-job.org에서 이런 조합을 쓰려면 **Custom(사용자 지정)
+모드**로 전환해야 분/시/요일을 각각 체크박스로 독립 지정할 수 있다. Minutes에 5분 단위 전부,
+Hours에 9~18, Days of week에 월~금만 체크해서 해결.
+
+#### 3. 트러블슈팅: 401 Unauthorized
+
+첫 저장 후 테스트 시 `401 Unauthorized: the endpoint requires authentication` 응답을 받았다.
+이 메시지는 "토큰이 틀렸다"가 아니라 **Authorization 헤더 자체가 요청에 안 실려갔다**는 뜻이라,
+아래처럼 원인을 분리해서 확인했다.
+
+- 토큰 자체가 유효한지 확인하기 위해, 토큰을 채팅(대화 기록)에 노출시키지 않고 **사용자의
+  터미널(Termux)에서 직접 `curl`로 같은 요청**을 재현하도록 안내:
+  ```
+  curl -i -X POST -H "Authorization: Bearer <TOKEN>" \
+    -H "Accept: application/vnd.github+json" \
+    https://api.github.com/repos/{owner}/{repo}/actions/workflows/notify.yml/dispatches \
+    -d '{"ref":"main"}'
+  ```
+- 이렇게 GitHub API 호출 경로와 cron-job.org UI 문제를 분리해서 원인을 좁혔다. 최종적으로는
+  cron-job.org 쪽 헤더 저장/입력 문제였던 것으로 보이며(재입력 후 정상화), 재발 시 위 curl
+  재현이 가장 빠른 진단 수단임을 기록해둔다.
+
+#### 4. 검증: 자동 스케줄이 실제로 사람 개입 없이 도는지 확인
+
+Test Run(수동 클릭)으로 204 응답을 받는 것과, **실제 예약 스케줄이 자동으로 도는 것**은 다른
+문제라 별도로 검증했다.
+
+- cron-job.org 대시보드의 **"Next execution"** 값(예: 13:45 KST)을 확인하고, 그 시각이 지날
+  때까지 아무 것도 누르지 않고 기다린 뒤 `gh run list`로 확인 → **13:45:15(KST)에 정확히
+  `workflow_dispatch` 이벤트로 자동 실행됨**을 확인. Timezone을 `Asia/Seoul`로 정확히 맞췄기
+  때문에 시각이 어긋나지 않았다 (UTC로 잘못 설정했다면 시간대가 12~13시간 밀렸을 것).
+- 이어서 **버튼→감지→알림 전체 파이프라인**을 실제로 검증: 13:46 KST에 텔레그램 버튼을 누름 →
+  13:50:21 KST 자동 폴링 슬롯에서 `check` job이 트리거를 감지 → 같은 실행 안에서 `notify` job이
+  자동으로 이어져 13:51:09 KST에 `notify_stock_price.py` 실행 완료 → 텔레그램 메시지 수신 확인.
+  **사람이 GitHub 쪽에서 아무것도 누르지 않았는데도 버튼 입력이 최종 메시지로 이어지는 것까지
+  end-to-end로 검증됨.**
+
+#### 5. 도입 과정에서 새로 발견한 문제 1: private 저장소 Actions 실행 시간 한도
+
+cron-job.org가 5분마다 **빠짐없이** 트리거하기 시작하면서, 그동안 GitHub 자체 스케줄이 대부분
+스킵되는 바람에 가려져 있던 문제가 드러났다. 이 저장소가 **private**인데, GitHub Actions
+무료 한도는 private 저장소 기준 **월 2,000분**이다. `check_manual_trigger.yml`의 `check`
+job이 평일 09~19시(KST) 5분마다 돌면 하루 120회 × 월 22일 ≈ 2,640회 실행되고, GitHub은 실행
+1건당 최소 1분으로 반올림 청구하므로 **월 2,640분**이 소요되어 무료 한도를 초과한다. 이는
+프로젝트 초기부터 지켜온 "카드 등록 불필요" 제약과 정면으로 충돌한다.
+
+**결정**: 저장소를 **public으로 전환**해 Actions 실행 시간을 무제한 무료로 만든다. 전환 전
+`git log --all --full-history -- .env` 및 커밋 히스토리 전체에서 실제 토큰 패턴(`숫자:영숫자`
+형태)을 검색해 유출된 비밀값이 없음을 확인했다 (`.env`는 처음부터 커밋된 적 없음, README.md에
+등장하는 `TELEGRAM_BOT_TOKEN`은 변수명 설명일 뿐 실제 값 아님).
+
+**전환 완료 (2026-07-22)**: `gh repo edit --visibility public --accept-visibility-change-consequences`로
+실제 전환했다 (`gh repo view --json isPrivate` → `false` 확인). 계기는 Actions 분당 한도가 아니라
+아래 "Streamlit Cloud 배포 재시도" 절에서 먼저 막혔던 문제 — private 상태로는 Streamlit Cloud
+배포 자체가 막혀 있었다.
+
+#### 6. 도입 과정에서 새로 발견한 문제 2: "최대 5분 대기"가 버튼의 사용자 경험과 어긋남
+
+폴링 주기가 5분이면, "지금 현재가 확인" 버튼을 눌러도 **최대 5분**을 기다려야 감지된다. 이건
+폴링 방식(GitHub가 능동적으로 물어보는 방식)을 쓰는 한 구조적으로 피할 수 없는 지연이다 —
+텔레그램이 먼저 GitHub에 신호를 보내는 방법(webhook)을 쓰지 않는 한, 몇 분 간격으로 계속
+"확인 작업"이 돌아야만 한다. 실제로 이번 대화 중 5분 대기 전체 과정을 겪어보니, **"지금"이라는
+버튼명이 주는 기대와 실제 경험(최대 5분 지연)이 어긋난다**는 지적이 나왔다.
+
+**검토한 개선안 (결정 전, 방향만 논의)**:
+- **(쉬움) cron-job.org 폴링 간격을 5분 → 1분으로 단축**: 저장소를 public으로 전환하면 Actions
+  실행 시간 제약이 없어지므로 비용 부담 없이 바로 적용 가능. 아키텍처 변경 없이 설정값만 변경.
+  최대 대기시간이 5분 → 1분으로 줄어듦.
+- **(근본적) 진짜 webhook 방식 재검토**: 기능 4에서 "새 언어(JS/TS) 학습 부담"을 이유로 기각했던
+  webhook을, **Python으로 그대로 배포 가능한 무료 서버리스**(예: Vercel의 Python 런타임, Render
+  무료 티어 Flask 앱)를 쓰면 그 기각 이유가 더 이상 유효하지 않을 수 있다는 점을 논의했다. 다만
+  이건 시스템에 새 구성요소(상시 공개 엔드포인트, webhook 보안 검증용 secret token)가 하나 더
+  늘어나는 것이라 관리 부담이 커진다.
+
+**다음 단계로 제안한 순서**: 우선 1분 간격으로 바꿔 체감을 다시 확인하고, 그래도 부족하면 Python
+기반 webhook을 검토한다. **아직 어느 쪽도 착수하지 않았고, 방향성만 기록**해둔다.
 
 ### 구현 중 발견한 버그: 텔레그램 전송이 조용히 실패함
 
@@ -433,3 +638,131 @@ python-dotenv holidays`). **가벼운 의존성만 설치된 격리 가상환경
       `load_price_history()`)를 아직 안 배운 시점이라는 선후관계 역전을 발견해 두 주차
       순서를 맞바꿨다 (7주: 코드 구조화 & 상태 저장 설계 → 8주: 시각화와 이미지 전송).
       자세한 주차별 내용은 `CURRICULUM.md` 참고.
+
+## 전략적 재검토 (2026-07-22): "텔레그램 유지"는 목적이 아니었다
+
+cron-job.org 이중 트리거를 실제로 구축·검증하고, 그 다음으로 "최대 5분 대기"를 없애기 위한
+webhook 방식(Python 서버리스 배포처)을 검토하던 중, 사용자가 이 프로젝트의 **진짜 목적**을
+다시 명확히 했다:
+
+> 목적은 원하는(주식 정보 같은) 실시간 빅데이터를 읽어, 원하는 시점에 원하는 방식으로
+> 사용자에게 보여주는 것이다. 이 과정에 DB가 쓰여서 학생들이 데이터의 전체 흐름을 알게
+> 되면 좋겠다. 이 목적에 맞는다면 지금까지의 작업을 전부 새로 써도 상관없다.
+
+즉 **"텔레그램으로 받는다"는 특정 구현 방식이지 목적 자체가 아니었다.**
+
+### 핵심 발견: 지금까지의 문제 전부가 "Push 방식" 선택에서 파생됨
+
+되짚어보면, 이 대화에서 겪은 문제들 — GitHub Actions `schedule` 미발동, 폴링에 의존하는 수동
+트리거의 최대 5분 지연, 그 지연을 줄이려던 cron-job.org 이중 트리거, private 저장소 Actions
+분당 한도, webhook을 위한 새 서버 호스팅 필요성 — **전부 "사용자가 원할 때 텔레그램으로 메시지를
+push해준다"는 전달 방식 하나를 고정해두고 그 신뢰성/지연을 개선하려다 생긴 문제들**이었다.
+
+### 대안 방향: Push(텔레그램) → Pull(웹 대시보드)
+
+사용자가 "확인하고 싶을 때" 웹페이지를 열어 DB에서 즉시 조회해 보여주는 방식으로 바꾸면:
+
+- **폴링/webhook 자체가 불필요해진다** — 페이지를 여는 행위가 곧 확인 행위이므로 "트리거를
+  기다리는" 구조가 사라짐.
+- **수집 스케줄이 가끔 스킵돼도 치명적이지 않다** — 지금까지는 스케줄 스킵 = "그 시각 메시지가
+  영영 안 옴"이었지만, 대시보드 방식이면 "약간 오래된 데이터가 보임" 정도로 완화됨.
+- **데이터 흐름(수집 → 저장 → 조회 → 표시)이 코드 구조상 명확히 분리**되어, "DB로 전체 흐름을
+  가르치고 싶다"는 목적에 오히려 더 잘 맞는다.
+
+### 검토한 스택 조합 (결정 전, 방향만 기록)
+
+| 조합 | 장점 | 단점 |
+|---|---|---|
+| **Turso(DB) + Streamlit(대시보드)** | 순수 Python, `pandas`/`matplotlib` 이미 다루는 커리큘럼과 잘 맞음, Streamlit Community Cloud로 카드 등록 없이 무료 배포 | Streamlit 특유의 "상호작용마다 스크립트 전체 재실행" 모델에 적응 필요 |
+| **Turso(DB) + Flask/FastAPI + Jinja2 템플릿** | HTTP 라우팅·템플릿 등 "진짜 웹 개발" 기초 개념을 같이 가르칠 수 있음 | Streamlit보다 보일러플레이트가 많고, 별도 무료 호스팅(Render/PythonAnywhere 등) 필요 |
+| **Turso(DB) + Gradio + Hugging Face Spaces** | Streamlit과 비슷한 간편함, HF Spaces가 git 기반 무료 배포 지원 | 원래 ML 데모용이라 "표 형태 대시보드"엔 Streamlit보다 부자연스러움 |
+| **정적 페이지(GitHub Pages) + Turso HTTP API 직접 호출** | 별도 서버 호스팅이 전혀 필요 없음(GitHub Pages는 이미 쓰는 GitHub 생태계), 브라우저 JS가 Turso의 libSQL HTTP API를 직접 조회 | DB 접근 토큰이 클라이언트(브라우저)에 노출되므로 **읽기 전용으로 스코프를 제한**해야 함, 서버 사이드 로직(가공/인증)을 못 넣음 |
+
+**다음 단계로 제안**: 아직 어느 조합도 결정하지 않았다. 사용자가 "다른 조합도 생각해보라"고
+요청해 위 표를 정리해뒀고, 실제 착수는 추후 결정한다. 이 전환이 확정되면 `CLAUDE.md`의 프로젝트
+목표 서술("텔레그램 봇 API로 전송")과 `CURRICULUM.md`의 관련 주차도 함께 재검토가 필요하다.
+
+### 목적 재확인: "웹 개발 기초"가 아니라 "빅데이터 흐름 체험"이 목표
+
+위 표를 두고 "Flask/FastAPI는 웹 개발 기초까지 가르칠 수 있다"는 장점을 제시했더니, 사용자가
+목적을 한 번 더 좁혀서 명확히 했다:
+
+> 웹 개발 기초까지 가르치고 싶다는 목표는 없다. 이 프로젝트는 "사용자요구 → 데이터의 수집 →
+> 저장 → 가공 → 시각화 → 사용자 확인"으로 이어지는 빅데이터의 흐름을 하나의 연결고리로 직접
+> 체험하고 학습하는 것이 목표다.
+
+이 기준으로 위 네 후보를 다시 좁혔다.
+
+**결론(권장): Turso(DB) + Streamlit.** 이유:
+
+- 파이프라인의 각 단계가 **전부 Python으로, 새 프레임워크 개념 추가 없이** 이어진다 — 사용자
+  요구(`watchlist.csv`) → 수집(네이버 API) → 저장(Turso INSERT) → 가공(DB에서 SELECT한 원본을
+  pandas로 가공, 이동평균/등락률 등을 추가하기 좋은 지점) → 시각화(`matplotlib`, 이미 배운 것
+  그대로) → 확인(Streamlit이 렌더링, 사용자가 원할 때 접속).
+- **Flask/FastAPI 제외**: HTTP 라우팅·템플릿은 이 프로젝트가 원하지 않는 "웹 개발 기초" 학습을
+  끌어들인다.
+- **정적 페이지 + Turso HTTP API 직접 호출 제외**: 서버가 필요 없다는 장점은 있지만, 브라우저에서
+  조회하려면 시각화를 **JavaScript 차트 라이브러리로 다시 짜야 해서** 이미 배운 `matplotlib`과의
+  연속성이 끊긴다 — "가공→시각화" 단계가 Python에서 이탈하는 게 이 목표에는 맞지 않는다.
+- **Gradio 제외**: ML 모델 데모용 도구라 표+차트 대시보드 용도로는 Streamlit보다 부자연스럽다.
+
+**제안한 코드 구조**: 파이프라인의 각 단계를 별도 파일/함수로 명확히 분리해서(예: `collect.py` →
+`db.py` → `process.py` → `dashboard.py`), 학생이 코드 구조만 보고도 "이게 수집, 이게 저장, 이게
+가공, 이게 시각화" 단계를 구분할 수 있게 한다.
+
+**상태**: 방향만 권장한 상태이고, 사용자가 최종 결정 전이다. 결정되면 위 "다음 단계" 절의
+`CLAUDE.md`/`CURRICULUM.md` 재검토도 함께 진행한다.
+
+### Streamlit 프로토타입 제작 및 Community Cloud 배포 시도 (2026-07-22)
+
+권장안(Turso + Streamlit)을 확정하기 전에, 가볍게 체험해보기로 하고 `dashboard.py`를 만들었다.
+기존 `stock_utils.py`의 `read_watchlist`/`fetch_naver_current_price`/`fetch_naver_intraday_minutes`/
+`build_price_chart`를 그대로 재사용해, DB 연동 없이 "Pull 방식이 실제로 어떤 느낌인지"만 확인하는
+용도다. 로컬 실행(`python -m streamlit run dashboard.py`)과 같은 Wi-Fi 내 모바일 접속(터미널의
+Network URL로 접속)까지 성공적으로 검증했다.
+
+이 과정에서 로컬 `price_history.json`이 GitHub에 이미 반영된 최신 커밋(전날 장마감 후 자동 수집분)
+보다 뒤처져 있어 텔레그램(2일치 표시)과 대시보드(1일치 표시)의 표시 내용이 달랐던 것도 확인 —
+`git pull`로 로컬을 최신화해서 해결했다 (단순 동기화 문제, 코드 버그 아님).
+
+**Streamlit Community Cloud 배포 중 발견한 버그와 해결**: `share.streamlit.io`에서 "Deploy an app"
+시도 중 저장소 이름(`eunsaem-yang/-telebot-naver-stock5days`)을 입력하면 "This repository does
+not exist"가 계속 떴다. GitHub 쪽 저장소 접근 권한(OAuth App 승인, GitHub App 설치 등)을 여러
+경로로 확인·재설정해봐도 동일했고, 브라우저 개발자 도구(F12 콘솔)로 실제 원인을 확인했다:
+
+```
+Warning: An unhandled error was caught from submitForm() RequiredError:
+Required parameter repo was null or undefined when calling verifyFileExists.
+```
+
+**원인**: 저장소 이름이 **하이픈(`-`)으로 시작**해서, Streamlit Cloud 프론트엔드가 저장소 이름을
+파싱하는 과정에서 `repo` 파라미터를 `null`로 만들어버리는 **Streamlit Cloud 쪽의 버그**였다. 권한
+문제가 전혀 아니었다 — "Paste GitHub URL" 방식(전체 blob URL 입력)으로도 같은 증상이 재현됐다.
+
+**해결**: `gh repo rename telebot-naver-stock5days`로 저장소 이름에서 맨 앞 하이픈을 제거했다
+(`eunsaem-yang/-telebot-naver-stock5days` → `eunsaem-yang/telebot-naver-stock5days`). `gh` CLI가
+로컬 git remote URL도 자동으로 새 이름으로 갱신해줬다 (`git fetch`로 정상 연결 확인). 이후 사용자가
+cron-job.org에 등록해둔 두 작업(`notify.yml`/`check_manual_trigger.yml` dispatch URL)의 저장소
+이름도 새 이름으로 직접 갱신했다. 이 문서(`ROADMAP.md`) 안의 옛 저장소 이름 참조 4곳도 함께
+갱신했다.
+
+### Streamlit Cloud 배포 재시도: private 저장소 접근 404 → public 전환으로 해결 (2026-07-22)
+
+이름 변경 후 재시도했으나 새 문제가 나타났다. GitHub URL(`.../blob/main/dashboard.py`)을 입력하면
+브라우저 콘솔에 다음이 떴다:
+
+```
+GET https://share.streamlit.io/api/v2/github/repository/branches?owner=eunsaem-yang&repo=telebot-naver-stock5days 404 (Not Found)
+```
+
+**원인**: 저장소가 여전히 **private**이었다 (`gh repo view --json isPrivate` → `true`). Streamlit
+Cloud가 private 저장소에 접근하려면 GitHub에 설치된 Streamlit GitHub App이 해당 저장소에 대한
+접근 권한을 별도로 부여받아야 하는데, 이게 없어서 브랜치 조회 자체가 저장소를 못 찾는 것처럼
+404로 응답한 것 — 앞서 겪은 하이픈 파싱 버그와는 별개의, 순수 권한 문제였다.
+
+**해결**: 위 "private 저장소 Actions 실행 시간 한도" 절에서 이미 결정만 해두고 미룬 public 전환을
+이 시점에 실행했다 (`gh repo edit --visibility public --accept-visibility-change-consequences`).
+Streamlit Cloud 접근 문제와 Actions 분당 한도 문제를 동시에 해결하는 선택이었다.
+
+전환 후 재시도 → **배포 성공** ("Your app is in the oven" 빌드 시작 화면 확인). 새 저장소 이름
+버그와 private 접근 권한 문제 둘 다 해소됨을 확인했다.
