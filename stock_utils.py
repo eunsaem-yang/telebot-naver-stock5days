@@ -77,6 +77,22 @@ def read_watchlist(path: str = WATCHLIST_FILE) -> list:
         return None
 
 
+def read_watchlist_names(path: str = WATCHLIST_FILE) -> dict:
+    """watchlist.csv에 name 컬럼이 있으면 {code: name} 매핑을 반환합니다 (없으면 빈 dict).
+    평소엔 네이버 API 응답의 종목명을 쓰지만, 그 조회 자체가 실패했을 때(대시보드 폴백)
+    종목코드 대신 이름을 보여주기 위한 용도."""
+    import pandas as pd
+
+    try:
+        watchlist_df = pd.read_csv(path, dtype={"code": str})
+        watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
+        if "name" not in watchlist_df.columns:
+            return {}
+        return dict(zip(watchlist_df["code"], watchlist_df["name"]))
+    except Exception:
+        return {}
+
+
 def _get_turso_client():
     """Turso(libSQL) DB 클라이언트를 생성하고, price_history 테이블이 없으면 만듭니다.
     libsql_client는 여기서만 필요한 무거운(네트워크 연결) 의존성이라 모듈 최상단이 아니라
@@ -145,7 +161,7 @@ def fetch_naver_current_price(code: str) -> dict:
     """네이버 금융 비공식 API로 종목의 현재가(장중) 또는 최근 종가(장마감)를 조회합니다."""
     url = f"https://m.stock.naver.com/api/stock/{code}/basic"
     try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         if response.status_code != 200:
             print(f"❌ [{code}] 네이버 현재가 조회 실패 (응답 코드: {response.status_code})")
             return None
@@ -176,7 +192,7 @@ def fetch_naver_intraday_minutes(code: str, date_str: str = None) -> list:
     url = "https://api.finance.naver.com/siseJson.naver"
     params = {"symbol": code, "requestType": 1, "startTime": date_str, "endTime": date_str, "timeframe": "minute"}
     try:
-        response = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        response = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         if response.status_code != 200:
             print(f"❌ [{code}] 당일 분봉 조회 실패 (응답 코드: {response.status_code})")
             return []

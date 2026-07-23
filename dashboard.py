@@ -18,6 +18,7 @@ except Exception:
 
 from stock_utils import (
     read_watchlist,
+    read_watchlist_names,
     load_price_history,
     fetch_naver_current_price,
     fetch_naver_intraday_minutes,
@@ -33,6 +34,7 @@ if st.button("🔄 새로고침"):
 
 codes = read_watchlist()
 history = load_price_history()
+watchlist_names = read_watchlist_names()
 
 for code in codes or []:
     current = fetch_naver_current_price(code)
@@ -41,12 +43,15 @@ for code in codes or []:
     if current is None:
         # 네이버 API 조회 실패(예: Streamlit Cloud → 네이버 도메인 연결 차단, ROADMAP.md
         # "알려진 이슈" 참고) 시에도 DB에 저장된 과거 종가가 있으면 그거라도 보여준다.
+        # 종목명은 원래 네이버 API 응답에서만 오므로, 조회 실패 시엔 watchlist.csv의
+        # name 컬럼에서 찾고 그마저 없으면 종목코드를 그대로 쓴다.
+        name = watchlist_names.get(code, code)
         if not daily_closes:
-            st.warning(f"{code}: 현재가 조회 실패 (저장된 과거 종가도 없음)")
+            st.warning(f"{name}({code}): 현재가 조회 실패 (저장된 과거 종가도 없음)")
             continue
-        st.warning(f"{code}: 현재가 조회 실패 — 저장된 과거 종가만 표시합니다")
-        st.subheader(code)
-        chart_buffer = build_price_chart(code, code, daily_closes)
+        st.warning(f"{name}({code}): 현재가 조회 실패 — 저장된 과거 종가만 표시합니다")
+        st.subheader(f"{name} ({code})")
+        chart_buffer = build_price_chart(code, name, daily_closes)
         st.image(chart_buffer)
         continue
 
