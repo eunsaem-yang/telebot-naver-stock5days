@@ -256,22 +256,26 @@ def send_telegram_photo(photo_buffer: io.BytesIO, caption: str) -> bool:
         return False
 
 
-def describe_price_trend(daily_closes: list, intraday_minutes: list) -> str:
+def describe_price_trend(daily_closes: list, intraday_minutes: list, has_current: bool = True) -> str:
     """그래프에 어떤 데이터가 담겼는지 설명하는 문구를 반환합니다. 그래프 제목과 텔레그램
-    캡션이 동일한 문구를 쓰도록 공용으로 뺐습니다."""
+    캡션이 동일한 문구를 쓰도록 공용으로 뺐습니다. has_current=False는 현재가 조회 자체가
+    실패해 DB에 저장된 과거 종가만 표시하는 경우(대시보드 fallback)를 가리킵니다."""
     if intraday_minutes:
         return f"최근 {len(daily_closes)}일 종가 + 오늘 분봉 추이"
+    if not has_current:
+        return f"최근 {len(daily_closes)}일 종가 (현재가 조회 실패)"
     if daily_closes:
         return f"최근 {len(daily_closes)}일 종가 + 현재가 추이"
     return "현재가 (종가 히스토리 누적 전)"
 
 
-def build_price_chart(code: str, name: str, daily_closes: list, current_price: int,
+def build_price_chart(code: str, name: str, daily_closes: list, current_price: int = None,
                        intraday_minutes: list = None) -> io.BytesIO:
     """종목별 최근 N일 종가 + 오늘 추이를 선 그래프로 그려 PNG 이미지 버퍼로 반환합니다.
     daily_closes는 [{"date": "YYYYMMDD", "close": 가격}, ...] (날짜 오름차순).
     intraday_minutes를 넘기면(오늘 분봉, 시간 오름차순) 오늘 구간을 분 단위 선으로 그리고,
-    없으면 현재가 한 점만 표시합니다(기존 동작과 동일)."""
+    없으면 current_price 한 점만 표시합니다. current_price도 None이면(예: 대시보드에서 네이버
+    API 조회가 실패한 경우) "오늘" 지점 없이 daily_closes만으로 그립니다."""
     import matplotlib
     matplotlib.use("Agg")  # 화면 출력 없이 이미지 파일(버퍼)로만 저장
     import matplotlib.pyplot as plt
@@ -286,8 +290,10 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
 
     if intraday_minutes:
         today_prices = [m["price"] for m in intraday_minutes]
-    else:
+    elif current_price is not None:
         today_prices = [current_price]
+    else:
+        today_prices = []  # 현재가 조회 실패: "오늘" 지점 없이 과거 종가만 그린다.
 
     prices = daily_prices + today_prices
     x = list(range(len(prices)))
@@ -302,10 +308,11 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
         for xi, yi in zip(daily_x, daily_prices):
             ax.annotate(f"{yi:,}", (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=9)
 
-    # 마지막 지점(현재가)은 항상 강조 표시한다.
-    ax.plot(x[-1], prices[-1], marker="o", color="#d62728")
-    ax.annotate(f"{prices[-1]:,}", (x[-1], prices[-1]), textcoords="offset points",
-                xytext=(0, 8), ha="center", fontsize=9, color="#d62728")
+    # "오늘" 지점(현재가/분봉)이 있을 때만 마지막 지점을 강조 표시한다.
+    if today_prices:
+        ax.plot(x[-1], prices[-1], marker="o", color="#d62728")
+        ax.annotate(f"{prices[-1]:,}", (x[-1], prices[-1]), textcoords="offset points",
+                    xytext=(0, 8), ha="center", fontsize=9, color="#d62728")
 
     # x축 눈금: 과거 일자는 전부, 오늘 분봉은 정시(HH:00)만 골라 표시한다 (전부 표시하면 겹침).
     tick_positions = list(daily_x)
@@ -316,13 +323,16 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
             if m["time"].endswith("00"):
                 tick_positions.append(offset + i)
                 tick_labels.append(f"{m['time'][:2]}:{m['time'][2:]}")
-    else:
+    elif current_price is not None:
         tick_positions.append(x[-1])
         tick_labels.append("현재")
     ax.set_xticks(tick_positions)
     ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=8)
 
-    ax.set_title(f"{name} ({code}) {describe_price_trend(daily_closes, intraday_minutes)}")
+    ax.set_title(
+        f"{name} ({code}) "
+        f"{describe_price_trend(daily_closes, intraday_minutes, has_current=current_price is not None)}"
+    )
     ax.set_ylabel("가격 (원)")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()

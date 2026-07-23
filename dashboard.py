@@ -36,11 +36,20 @@ history = load_price_history()
 
 for code in codes or []:
     current = fetch_naver_current_price(code)
+    daily_closes = history.get(code, [])
+
     if current is None:
-        st.warning(f"{code}: 현재가 조회 실패")
+        # 네이버 API 조회 실패(예: Streamlit Cloud → 네이버 도메인 연결 차단, ROADMAP.md
+        # "알려진 이슈" 참고) 시에도 DB에 저장된 과거 종가가 있으면 그거라도 보여준다.
+        if not daily_closes:
+            st.warning(f"{code}: 현재가 조회 실패 (저장된 과거 종가도 없음)")
+            continue
+        st.warning(f"{code}: 현재가 조회 실패 — 저장된 과거 종가만 표시합니다")
+        st.subheader(code)
+        chart_buffer = build_price_chart(code, code, daily_closes)
+        st.image(chart_buffer)
         continue
 
-    daily_closes = history.get(code, [])
     intraday = fetch_naver_intraday_minutes(code)
 
     st.subheader(f"{current['name']} ({code})")
