@@ -40,20 +40,26 @@ def send_price_notification() -> None:
     print("🚀 관심종목 현재가 조회 시작...")
 
     current_prices = {}  # code -> fetch_naver_current_price() 결과
+    # 메시지를 한 번에 다 만들지 않고, 종목을 순회하면서 문자열을 계속 이어 붙여(+=) 완성한다.
     telegram_message = "📊 <b>내 관심종목 현재가</b>\n\n"
 
     for code in watchlist_codes:
         info = fetch_naver_current_price(code)
         if info is None:
+            # 이 종목만 조회 실패해도 프로그램을 멈추지 않고 다음 종목으로 넘어간다.
             continue
 
         current_prices[code] = info
 
+        # html.escape(): 종목명/코드에 <, >, & 같은 HTML 특수문자가 섞여 있으면 그대로 이스케이프
+        # 처리해, 위에서 parse_mode="HTML"로 보내는 메시지의 태그 구조가 깨지지 않게 한다.
         name = html.escape(info["name"])
         price = info["price"]
         rate = info["rate"]
+        # 삼항 표현식: 장중이면 "현재가", 장마감 후면 "종가"라고 다르게 표시한다.
         label = "현재가 (장중)" if info["is_open"] else "종가 (장마감 기준)"
 
+        # 등락률(rate)의 부호에 따라 표시할 이모지와 문구를 정한다.
         if rate > 0:
             sign, rate_str = "🔺", f"+{rate}%"
         elif rate < 0:
@@ -78,7 +84,9 @@ def send_price_notification() -> None:
     # 2. collect_daily_close.py가 저장해 둔 최근 15거래일 종가를 읽어 그래프 생성 및 전송
     price_history = load_price_history()
 
+    # current_prices.items(): {종목코드: 조회결과} 딕셔너리를 (code, info) 쌍으로 순회한다.
     for code, info in current_prices.items():
+        # price_history.get(code, []): 이 종목의 히스토리가 없으면 빈 리스트를 대신 쓴다.
         daily_closes = price_history.get(code, [])
         if not daily_closes:
             print(f"⚠️ [{code}] 저장된 종가 히스토리가 없어 현재가만으로 그래프를 그립니다. "
@@ -94,5 +102,10 @@ def send_price_notification() -> None:
             print(f"❌ [{code}] 추이 그래프 전송에 실패했습니다.")
 
 
+# if __name__ == "__main__": 은 "이 파일을 직접 실행했을 때만" 아래 코드를 돌리라는 뜻이다.
+# 다른 스크립트가 이 파일을 import만 하는 경우(예: check_manual_trigger.yml의 notify job이
+# `python notify_stock_price.py`로 실행할 때가 아니라, 만약 어딘가에서
+# `from notify_stock_price import send_price_notification`처럼 함수만 가져다 쓰는 경우)에는
+# 이 블록이 자동으로 실행되지 않는다.
 if __name__ == "__main__":
     send_price_notification()

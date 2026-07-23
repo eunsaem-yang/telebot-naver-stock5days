@@ -27,17 +27,31 @@ from stock_utils import (
 
 
 def _is_trigger_message(update: dict) -> bool:
+    """텔레그램 update 하나가 "수동 트리거" 메시지인지 판별한다."""
+    # update.get("message") or {}: "message" 키가 없거나 값이 None이면 빈 딕셔너리를 대신
+    # 쓴다 — 뒤에서 .get()을 또 호출해도 에러 없이 안전하게 넘어가기 위해서다.
     message = update.get("message") or {}
+    # 메시지 안의 chat.id를 딕셔너리 접근을 두 번 연달아 해서 꺼낸다: message["chat"]가 다시
+    # 딕셔너리이고, 그 안에 "id"가 있다.
     chat_id = message.get("chat", {}).get("id")
+    # 내 텔레그램 채팅(TELEGRAM_CHAT_ID)에서 온 메시지가 아니면 무시한다 (다른 사람이 이
+    # 봇에게 말을 걸어도 반응하지 않도록). str()로 감싸는 건 두 값의 타입(문자열/정수)이
+    # 다를 수 있어 비교 전에 형태를 맞추기 위해서다.
     if chat_id is None or str(chat_id) != str(TELEGRAM_CHAT_ID):
         return False
+    # 메시지 텍스트가 버튼 문구 또는 /notify 명령어 중 하나와 정확히 같으면 트리거로 인정한다.
     return message.get("text") in (MANUAL_TRIGGER_TEXT, MANUAL_TRIGGER_COMMAND)
 
 
 def _report_triggered(triggered: bool) -> None:
     """GitHub Actions에서 실행 중이면 GITHUB_OUTPUT에 기록해 다음 job이 참조할 수 있게 한다."""
+    # GITHUB_OUTPUT은 GitHub Actions가 실행 중에만 만들어주는 환경변수(파일 경로)다.
+    # 로컬 실행일 땐 이 값이 없어서(None) 아래 if가 거짓이 되어 아무 일도 하지 않는다.
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
+        # "a" 모드: 파일 내용을 지우지 않고 끝에 이어서 쓴다(append). 이 파일에
+        # "이름=값" 형식으로 한 줄 추가하면, 같은 워크플로의 다음 job이
+        # `needs.check.outputs.triggered`로 이 값을 읽을 수 있다.
         with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"triggered={'true' if triggered else 'false'}\n")
 
@@ -52,9 +66,12 @@ if not updates:
 # 이번에 받아온 업데이트는 트리거 여부와 상관없이 모두 확인 처리한다.
 # (텔레그램 서버에 offset을 넘겨 다음 폴링 때 동일 메시지가 중복으로 돌아오지 않게 함 — 이 스크립트는
 # 매 실행마다 새로 시작되므로 로컬에 offset을 따로 저장하지 않고 텔레그램 서버 쪽 상태만 사용한다.)
-last_update_id = updates[-1]["update_id"]
+last_update_id = updates[-1]["update_id"]  # updates[-1]: 리스트의 마지막(가장 최근) 항목.
 fetch_telegram_updates(offset=last_update_id + 1)
 
+# any(...)는 괄호 안 조건이 하나라도 True면 즉시 True를 반환한다(제너레이터 표현식과 함께 쓰면
+# 리스트를 다 순회하지 않고도 도중에 멈출 수 있어 효율적이다). 즉 "받아온 메시지들 중 트리거로
+# 인정되는 게 하나라도 있는가?"를 확인한다.
 button_pressed = any(_is_trigger_message(update) for update in updates)
 
 if not button_pressed:

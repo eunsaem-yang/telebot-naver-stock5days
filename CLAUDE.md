@@ -43,6 +43,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   별도 job이 맡는다 — 대부분의 폴링은 트리거 없이 끝나므로 무거운 의존성 설치를 아낀다. 하루 3회
   자동 스케줄(`notify.yml`)과는 별개로 동작하며 서로 대체하지 않는다. 한계와 배경은 `ROADMAP.md`
   "기능 4" 참고.
+- `telebot.py`: 로컬에서 1회만 실행하는 설정 스크립트. 봇에게 보낸 메시지를 `getUpdates`로
+  조회해 `TELEGRAM_CHAT_ID`를 알아내는 데 쓴다 (최초 봇 설정 시 1회, `CURRICULUM.md` 5주차 참고).
 - `setup_telegram_button.py`: 로컬에서 1회만 실행하는 설정 스크립트. 텔레그램 채팅창에 리플라이
   키보드 버튼을 노출시키고, 고정 메뉴에 `/notify` 명령어를 등록한다.
 - `stock_utils.py`: 여러 스크립트가 공유하는 함수(네이버 현재가 조회, Turso DB 히스토리

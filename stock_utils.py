@@ -38,14 +38,21 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
+# holidays.KR()은 한국 공휴일 날짜(datetime.date 객체)들을 담고 있는 특수한 집합(set)이다.
+# "날짜 in _KR_HOLIDAYS"처럼 in 연산자로 그 날짜가 공휴일인지 바로 물어볼 수 있다.
 _KR_HOLIDAYS = holidays.KR()
 
 
 def is_trading_day(date: datetime = None) -> bool:
     """평일이면서 한국 공휴일이 아닌 날(=KRX 개장일)인지 확인합니다."""
+    # 함수를 호출할 때 date를 안 넘기면(None) 지금 이 순간(오늘)을 기준으로 판단한다.
     date = date or datetime.now()
+    # datetime.weekday()는 월요일=0, 화요일=1, ... 일요일=6을 반환한다.
+    # 5(토요일) 이상이면 주말이라는 뜻이므로 거래일이 아니다.
     if date.weekday() >= 5:  # 5=토요일, 6=일요일
         return False
+    # datetime(날짜+시각)에서 시각 정보를 뺀 date(날짜만)로 변환해야 holidays 집합과 비교할 수 있다.
+    # "not in"이므로 "공휴일 목록에 없으면 True(거래일)"라는 뜻이다.
     return date.date() not in _KR_HOLIDAYS
 
 
@@ -58,16 +65,20 @@ def read_watchlist(path: str = WATCHLIST_FILE) -> list:
         return None
 
     try:
-        # 앞자리에 0이 있는 종목코드(예: 005930)가 깨지지 않도록 str(문자열) 타입으로 읽습니다.
+        # pd.read_csv()는 CSV 파일을 읽어 표 형태의 자료구조인 DataFrame으로 돌려준다.
+        # dtype={"code": str}을 안 주면 pandas가 "005930"을 숫자로 착각해 앞자리 0을
+        # 없애버린다(5930) — 앞자리에 0이 있는 종목코드가 깨지지 않도록 문자열로 강제한다.
         watchlist_df = pd.read_csv(path, dtype={"code": str})
 
         # 컬럼명의 공백을 제거하고 소문자로 통일하여 'code' 컬럼을 찾습니다.
+        # (리스트 컴프리헨션: 모든 컬럼명 하나하나에 strip()+lower()를 적용해 새 리스트를 만든다)
         watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
 
         if "code" not in watchlist_df.columns:
             print("❌ CSV 파일에 'code' 컬럼이 존재하지 않습니다.")
             return None
 
+        # DataFrame의 "code" 열(Series)을 파이썬 기본 리스트로 변환한다.
         codes = watchlist_df["code"].tolist()
         print(f"📋 읽어온 관심 종목 리스트: {codes}")
         return codes
@@ -88,6 +99,10 @@ def read_watchlist_names(path: str = WATCHLIST_FILE) -> dict:
         watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
         if "name" not in watchlist_df.columns:
             return {}
+        # zip()은 두 리스트(code 열, name 열)를 같은 순서끼리 짝지어 (code, name) 쌍들을 만들고,
+        # dict()가 그 쌍들을 {code: name, ...} 형태의 딕셔너리로 바꿔준다.
+        # 예: code=["005930","000660"], name=["삼성전자","SK하이닉스"]
+        #     → {"005930": "삼성전자", "000660": "SK하이닉스"}
         return dict(zip(watchlist_df["code"], watchlist_df["name"]))
     except Exception:
         return {}
@@ -106,8 +121,14 @@ def _get_turso_client():
     # 학교/사내 방화벽이나 일부 실행 환경에서 WebSocket이 막혀 있으면 에러조차 없이 그냥
     # 멈춰버린다(타임아웃 없이 무한 대기). transaction() API를 쓰지 않아 HTTP만으로도 충분하므로,
     # 항상 https://로 바꿔 접속해 이 문제를 원천적으로 피한다.
+    # .replace(old, new, 1)의 마지막 1은 "맨 앞 1개만 바꾸라"는 뜻이다 (문자열 안에 libsql://가
+    # 또 나올 일은 없지만, 관례적으로 몇 번까지 바꿀지 명시해두면 의도가 분명해진다).
     url = TURSO_DATABASE_URL.replace("libsql://", "https://", 1)
     client = libsql_client.create_client_sync(url, auth_token=TURSO_AUTH_TOKEN)
+    # IF NOT EXISTS: 테이블이 이미 있으면 아무 일도 안 하고, 없을 때만 새로 만든다 — 이 함수가
+    # 여러 번 호출돼도(스크립트를 여러 번 실행해도) 안전하다.
+    # 스키마: code(종목코드)+date(YYYYMMDD)를 합쳐 하나의 행을 유일하게 식별하는 기본키(PRIMARY
+    # KEY)로 지정 — "같은 종목의 같은 날짜"는 딱 하나의 행만 존재할 수 있다는 제약이다.
     client.execute(
         "CREATE TABLE IF NOT EXISTS price_history ("
         "code TEXT NOT NULL, date TEXT NOT NULL, close INTEGER NOT NULL, "
@@ -121,14 +142,23 @@ def load_price_history() -> dict:
     형태(날짜 오름차순)로 반환합니다. 예전에는 이 함수가 price_history.json을 읽었지만, Turso
     마이그레이션 이후로는 DB에서 직접 SELECT한다 (ROADMAP.md 참고)."""
     try:
+        # with 문(컨텍스트 매니저): 블록이 끝나면(정상 종료든 예외든) client.close()가 자동으로
+        # 호출되어 DB 연결이 확실히 정리된다 — 파일을 open()으로 열었을 때와 같은 원리다.
         with _get_turso_client() as client:
+            # ORDER BY code, date: 종목코드 순으로, 같은 종목 안에서는 날짜 오름차순으로 정렬해서
+            # 받아온다 (그래프를 그릴 때 날짜순 정렬이 이미 돼 있어야 하므로 여기서 미리 정렬한다).
             result = client.execute("SELECT code, date, close FROM price_history ORDER BY code, date")
     except Exception as e:
         print(f"❌ Turso DB에서 종가 히스토리를 읽지 못했습니다: {e}")
         return {}
 
     history: dict = {}
+    # result.rows는 (code, date, close) 튜플들의 목록이다. for 문에서 (code, date, close)로 바로
+    # 풀어서(unpacking) 받는다.
     for code, date, close in result.rows:
+        # dict.setdefault(key, [])는 "key가 이미 있으면 그 값을 그대로 쓰고, 없으면 빈 리스트를
+        # 새로 만들어 넣은 뒤 그걸 반환"한다 — 종목별로 리스트를 매번 존재 확인하며 만드는 코드
+        # (if code not in history: history[code] = []) 를 한 줄로 줄인 것이다.
         history.setdefault(code, []).append({"date": date, "close": close})
     return history
 
@@ -143,11 +173,23 @@ def update_price_history(code: str, date_str: str, close_price: int,
     별도의 "저장" 단계가 필요 없다 — 이것이 파일 기반 저장과 DB 기반 저장의 핵심 차이다."""
     try:
         with _get_turso_client() as client:
+            # "?"는 SQL 쿼리의 자리표시자(placeholder)다. 문자열을 f"...{code}..."처럼 직접
+            # 끼워넣지 않고 별도의 리스트로 값을 넘기면, 라이브러리가 안전하게 값을 채워준다
+            # (SQL 인젝션 방지 — 종목코드/날짜에 이상한 문자가 섞여 있어도 쿼리 구조가 깨지지 않는다).
+            #
+            # ON CONFLICT (code, date) DO UPDATE: "upsert"라고 부르는 패턴이다. (code, date)가
+            # PRIMARY KEY라서 이미 같은 조합의 행이 있으면 INSERT가 충돌(conflict)나는데, 이 경우
+            # 새로 넣는 대신 close 값만 덮어쓴다(UPDATE) — "있으면 수정, 없으면 추가"를 SQL 한
+            # 문장으로 처리한다. excluded.close는 "이번에 넣으려던 새 close 값"을 가리킨다.
             client.execute(
                 "INSERT INTO price_history (code, date, close) VALUES (?, ?, ?) "
                 "ON CONFLICT (code, date) DO UPDATE SET close = excluded.close",
                 [code, date_str, close_price],
             )
+            # 이 종목(code)의 최근 num_days개보다 오래된 행을 지워 히스토리 길이를 일정하게 유지한다.
+            # 안쪽 SELECT가 먼저 "날짜 내림차순으로 정렬해 최신 num_days개의 날짜"를 뽑고,
+            # 바깥쪽 DELETE는 그 목록에 없는(NOT IN) 나머지 오래된 행만 지운다 — "남길 것"을 먼저
+            # 정하고 "그 외 전부"를 지우는 서브쿼리 활용 패턴이다.
             client.execute(
                 "DELETE FROM price_history WHERE code = ? AND date NOT IN ("
                 "SELECT date FROM price_history WHERE code = ? ORDER BY date DESC LIMIT ?)",
@@ -161,17 +203,31 @@ def fetch_naver_current_price(code: str) -> dict:
     """네이버 금융 비공식 API로 종목의 현재가(장중) 또는 최근 종가(장마감)를 조회합니다."""
     url = f"https://m.stock.naver.com/api/stock/{code}/basic"
     try:
+        # requests.get()으로 이 주소에 HTTP GET 요청을 보낸다. User-Agent 헤더가 없으면 일부
+        # 서버가 "브라우저가 아닌 요청"으로 판단해 응답을 거부하기도 해서 브라우저인 척 흉내낸다.
+        # timeout=3: 3초 안에 응답이 없으면 기다리지 않고 바로 예외를 발생시킨다(무한 대기 방지).
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         if response.status_code != 200:
             print(f"❌ [{code}] 네이버 현재가 조회 실패 (응답 코드: {response.status_code})")
             return None
 
+        # JSON(JavaScript Object Notation)은 API가 데이터를 주고받을 때 가장 흔히 쓰는 텍스트
+        # 형식이다. 생김새가 파이썬의 딕셔너리·리스트와 거의 그대로 대응된다:
+        #   {"stockName": "삼성전자", "closePrice": "71,000", "marketStatus": "OPEN"}
+        # 위 문자열이 바로 JSON이고, response.json()은 이 문자열을 실제 파이썬 딕셔너리로
+        # 변환해준다 — 그 뒤로는 data["stockName"]처럼 평범한 딕셔너리 다루듯 쓸 수 있다.
         data = response.json()
+        # data.get("closePrice", "0"): "closePrice" 키가 없으면 기본값 "0"을 쓴다(에러 방지).
+        # 네이버 응답은 가격에 천단위 콤마가 찍혀 있어서("70,000") 숫자로 바꾸기 전에 지운다.
         price_str = data.get("closePrice", "0").replace(",", "")
         return {
             "code": code,
             "name": data.get("stockName", "알 수 없음"),
+            # 삼항 표현식(조건부 표현식): "조건이 참이면 A, 아니면 B"를 한 줄로 쓴 것.
+            # price_str.isdigit()은 문자열이 숫자로만 이루어졌는지 확인 — 혹시 이상한 값이
+            # 와도 int() 변환 중 프로그램이 멈추지 않고 0으로 처리하고 넘어가게 한다.
             "price": int(price_str) if price_str.isdigit() else 0,
+            # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
             "rate": float(data.get("fluctuationsRatio", "0") or "0"),
             "is_open": data.get("marketStatus") == "OPEN",
         }
@@ -192,16 +248,27 @@ def fetch_naver_intraday_minutes(code: str, date_str: str = None) -> list:
     url = "https://api.finance.naver.com/siseJson.naver"
     params = {"symbol": code, "requestType": 1, "startTime": date_str, "endTime": date_str, "timeframe": "minute"}
     try:
+        # params에 담은 딕셔너리는 requests가 자동으로 "?symbol=005930&requestType=1&..." 같은
+        # 쿼리스트링으로 바꿔서 URL 뒤에 붙여준다.
         response = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         if response.status_code != 200:
             print(f"❌ [{code}] 당일 분봉 조회 실패 (응답 코드: {response.status_code})")
             return []
+        # 이 API는 표준 JSON이 아니라 EUC-KR 한글이 깨진 상태로 섞여 있어 response.json()이
+        # 그대로 안 통한다. 대신 정규식(re.findall)으로 우리가 원하는 형태의 데이터 행만 직접
+        # 골라낸다. 정규식 \["(\d{12})",\s*null,\s*null,\s*null,\s*(\d+),\s*\d+,\s*null\] 뜻:
+        #   ["202607230905", null, null, null, 71000, ..., null] 같은 한 줄에서
+        #   ( ) 로 감싼 두 부분 — 12자리 시각("YYYYMMDDHHMM")과 가격 숫자 — 만 뽑아온다.
         rows = re.findall(r'\["(\d{12})",\s*null,\s*null,\s*null,\s*(\d+),\s*\d+,\s*null\]', response.text)
         if not rows and re.search(r'\["\d{12}"', response.text):
             # 타임스탬프가 찍힌 행은 있는데 우리가 기대한 형식(위 정규식)과 안 맞는 경우 —
             # 장이 아직 안 열려서 데이터가 없는 것과는 다른, API 응답 형식 자체가 바뀐 상황일 수 있다.
             print(f"⚠️ [{code}] 당일 분봉 응답 형식이 예상과 달라 파싱하지 못했습니다. "
                   f"네이버 API 응답 형식이 바뀌었을 수 있습니다.")
+        # rows는 [("202607230905", "71000"), ...] 같은 (시각, 가격) 튜플들의 리스트다.
+        # 리스트 컴프리헨션으로 각 튜플을 {"time": "HHMM", "price": 정수} 딕셔너리로 바꾼다.
+        # timestamp[8:]: 12자리 문자열("YYYYMMDDHHMM")에서 앞 8글자(날짜)를 잘라내고 뒤 4글자
+        # (시:분)만 남긴다 — 문자열 슬라이싱.
         minutes = [{"time": timestamp[8:], "price": int(price)} for timestamp, price in rows]
         minutes.reverse()  # 응답이 최신순이라 시간 오름차순으로 뒤집는다
         return minutes
@@ -213,9 +280,14 @@ def fetch_naver_intraday_minutes(code: str, date_str: str = None) -> list:
 def send_telegram_message(text: str, reply_markup: dict = None) -> bool:
     """텔레그램 sendMessage API로 텍스트 메시지를 전송합니다.
     reply_markup을 넘기면 커스텀 키보드(버튼) 등을 함께 첨부합니다."""
+    # 텔레그램 Bot API는 "https://api.telegram.org/bot{토큰}/{기능이름}" 형태의 URL로 호출한다.
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    # parse_mode: "HTML"로 지정하면 text 안의 <b>굵게</b> 같은 간단한 HTML 태그가 실제로
+    # 굵게/기울임 등으로 렌더링된다.
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
     if reply_markup is not None:
+        # reply_markup(버튼 등 UI 구성)은 파이썬 딕셔너리인데, 텔레그램 API로 보낼 때는
+        # JSON 문자열이어야 해서 json.dumps()로 변환한다.
         data["reply_markup"] = json.dumps(reply_markup)
     try:
         response = requests.post(url, data=data, timeout=15)
@@ -230,9 +302,13 @@ def register_telegram_commands() -> bool:
     딸린 게 아니라 봇 자체에 등록되는 것이라, 메시지를 아무리 지워도 사라지지 않습니다. 1회만
     실행하면 계속 유지됩니다."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setMyCommands"
+    # MANUAL_TRIGGER_COMMAND는 "/notify"인데, setMyCommands API는 맨 앞의 "/" 없이 "notify"만
+    # 받는다. lstrip("/")는 문자열 맨 왼쪽에서 "/" 문자를 전부 제거한다.
     command_name = MANUAL_TRIGGER_COMMAND.lstrip("/")
     commands = [{"command": command_name, "description": "지금 관심종목 현재가 확인"}]
     try:
+        # json=commands처럼 json= 파라미터로 넘기면 requests가 자동으로 JSON 문자열 변환과
+        # Content-Type 헤더 설정까지 해준다 (앞의 sendMessage는 data=로 넘겨 폼 형식으로 보냈다).
         response = requests.post(url, json={"commands": commands}, timeout=15)
         return response.status_code == 200
     except Exception as e:
@@ -245,7 +321,7 @@ def fetch_telegram_updates(offset: int = None) -> list:
     offset을 넘기면 그보다 작은 update_id는 텔레그램 서버에서 확인 처리되어,
     다음 호출부터는 다시 돌아오지 않습니다 (별도 로컬 상태 저장 없이 중복 처리를 방지)."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-    params = {"timeout": 0}
+    params = {"timeout": 0}  # 0: 새 메시지가 없어도 기다리지 않고 즉시 응답받는다(짧은 폴링).
     if offset is not None:
         params["offset"] = offset
     try:
@@ -253,6 +329,8 @@ def fetch_telegram_updates(offset: int = None) -> list:
         if response.status_code != 200:
             print(f"❌ 텔레그램 업데이트 조회 실패 (응답 코드: {response.status_code})")
             return []
+        # 응답 JSON은 {"ok": true, "result": [...메시지 목록...]} 형태다. "result" 키가 없으면
+        # 빈 리스트를 대신 반환하도록 .get()에 기본값을 준다.
         return response.json().get("result", [])
     except Exception as e:
         print(f"❌ 텔레그램 업데이트 조회 중 오류 발생: {e}")
@@ -262,6 +340,10 @@ def fetch_telegram_updates(offset: int = None) -> list:
 def send_telegram_photo(photo_buffer: io.BytesIO, caption: str) -> bool:
     """텔레그램 sendPhoto API로 이미지를 전송합니다."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    # 파일 업로드는 requests의 files= 파라미터로 한다(멀티파트 폼 전송). 튜플의 세 값은
+    # 각각 (파일이름, 파일 내용, MIME 타입)이다. photo_buffer는 디스크에 저장된 실제 파일이
+    # 아니라 build_price_chart()가 메모리 안에 만들어둔 io.BytesIO(바이트 버퍼)인데, requests는
+    # 이런 파일과 비슷하게 동작하는 객체("file-like object")도 그대로 파일처럼 다룰 수 있다.
     files = {"photo": ("chart.png", photo_buffer, "image/png")}
     data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption}
     try:
@@ -301,9 +383,13 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     # 순서대로 탐색되어 설치된 첫 폰트가 사용된다.
     plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 
+    # daily_closes는 [{"date": "20260722", "close": 71000}, ...] 형태다.
+    # x축에 표시할 짧은 날짜 라벨("07/22")을 문자열 슬라이싱으로 만든다:
+    #   entry['date'][4:6] → "07"(5~6번째 글자, 월),  entry['date'][6:] → "22"(7번째 글자부터 끝, 일)
     daily_labels = [f"{entry['date'][4:6]}/{entry['date'][6:]}" for entry in daily_closes]
     daily_prices = [entry["close"] for entry in daily_closes]
 
+    # "오늘" 구간에 그릴 값들을 상황별로 결정한다 (우선순위: 분봉 > 현재가 한 점 > 아무것도 없음).
     if intraday_minutes:
         today_prices = [m["price"] for m in intraday_minutes]
     elif current_price is not None:
@@ -311,38 +397,54 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     else:
         today_prices = []  # 현재가 조회 실패: "오늘" 지점 없이 과거 종가만 그린다.
 
+    # 과거 종가 리스트 + 오늘 값 리스트를 이어붙여 하나의 선으로 그릴 전체 값 목록을 만든다.
     prices = daily_prices + today_prices
+    # x축 좌표는 그냥 0, 1, 2, ...처럼 순서대로 매긴다 (실제 날짜 간격이 아니라 "몇 번째 점인지").
     x = list(range(len(prices)))
+    # daily_x: x 중에서 앞쪽(과거 종가에 해당하는) 부분만 슬라이싱으로 잘라낸다.
     daily_x = x[:len(daily_prices)]
 
+    # fig(전체 도화지)와 ax(실제로 선·점을 그리는 좌표축)를 함께 만든다. figsize는 (가로, 세로)
+    # 인치 단위 그림 크기다.
     fig, ax = plt.subplots(figsize=(7, 4))
+    # ax.plot(x좌표들, y좌표들, ...): 점들을 순서대로 이어 선 그래프를 그린다.
     ax.plot(x, prices, color="#1f77b4", linewidth=1.5)
 
     # 과거 종가는 점 + 값 라벨로 강조한다 (분봉까지 전부 라벨을 붙이면 수백 개가 겹쳐 안 보인다).
     if daily_x:
+        # marker="o", linestyle="None": 선은 안 그리고 동그란 점만 찍는다 (선은 위에서 이미 그렸다).
         ax.plot(daily_x, daily_prices, marker="o", linestyle="None", color="#1f77b4")
+        # zip(daily_x, daily_prices)로 (x좌표, y값) 쌍을 하나씩 돌면서, 각 점 위에 실제 가격
+        # 숫자를 텍스트로 붙인다. f"{yi:,}"의 ":,"는 천단위마다 콤마를 넣는 서식 지정자다
+        # (71000 → "71,000"). xytext=(0, 8)은 점에서 위로 8포인트 띄워서 라벨을 쓴다는 뜻이다.
         for xi, yi in zip(daily_x, daily_prices):
             ax.annotate(f"{yi:,}", (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=9)
 
     # "오늘" 지점(현재가/분봉)이 있을 때만 마지막 지점을 강조 표시한다.
     if today_prices:
+        # x[-1], prices[-1]: 리스트의 마지막(-1번째) 원소, 즉 그래프에서 가장 최근 값이다.
         ax.plot(x[-1], prices[-1], marker="o", color="#d62728")
         ax.annotate(f"{prices[-1]:,}", (x[-1], prices[-1]), textcoords="offset points",
                     xytext=(0, 8), ha="center", fontsize=9, color="#d62728")
 
     # x축 눈금: 과거 일자는 전부, 오늘 분봉은 정시(HH:00)만 골라 표시한다 (전부 표시하면 겹침).
+    # list(daily_x)/list(daily_labels): 원본 리스트를 복사해서 새 리스트를 만든다 — 이후 append로
+    # 눈금을 더 추가해도 daily_x/daily_labels 원본은 그대로 유지된다.
     tick_positions = list(daily_x)
     tick_labels = list(daily_labels)
     if intraday_minutes:
-        offset = len(daily_prices)
+        offset = len(daily_prices)  # 분봉 구간은 과거 종가 개수만큼 뒤에서 시작한다.
+        # enumerate(intraday_minutes): (인덱스, 값) 쌍을 함께 돌려준다.
         for i, m in enumerate(intraday_minutes):
-            if m["time"].endswith("00"):
+            if m["time"].endswith("00"):  # "HHMM" 문자열이 "00"으로 끝나면 정각(예: "0900")
                 tick_positions.append(offset + i)
+                # m['time'][:2]는 앞 2글자(시), m['time'][2:]는 그 뒤 전부(분) — "09:00" 형태로 조합.
                 tick_labels.append(f"{m['time'][:2]}:{m['time'][2:]}")
     elif current_price is not None:
         tick_positions.append(x[-1])
         tick_labels.append("현재")
     ax.set_xticks(tick_positions)
+    # rotation=45, ha="right": 라벨이 많아 겹치지 않도록 45도 기울여서 오른쪽 정렬로 표시한다.
     ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=8)
 
     ax.set_title(
@@ -350,11 +452,15 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
         f"{describe_price_trend(daily_closes, intraday_minutes, has_current=current_price is not None)}"
     )
     ax.set_ylabel("가격 (원)")
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
+    ax.grid(True, alpha=0.3)  # 배경에 옅은(투명도 0.3) 격자선을 넣어 값을 읽기 쉽게 한다.
+    fig.tight_layout()  # 라벨/제목이 그림 밖으로 잘리지 않도록 여백을 자동으로 조정한다.
 
+    # 그래프를 디스크의 실제 파일이 아니라 메모리 상의 바이트 버퍼(io.BytesIO)에 PNG 형식으로
+    # "저장"한다 — 파일로 안 남기고 바로 텔레그램 전송/화면 표시에 쓸 수 있어서 편리하다.
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png")
-    plt.close(fig)
+    plt.close(fig)  # 다 그린 figure를 메모리에서 정리한다 (안 닫으면 반복 호출 시 계속 쌓인다).
+    # savefig 직후엔 버퍼의 "커서"가 맨 끝(쓰기가 끝난 지점)에 있다. seek(0)으로 다시 맨 앞으로
+    # 되돌려야, 이 버퍼를 읽는 쪽(sendPhoto, st.image 등)이 처음부터 제대로 읽을 수 있다.
     buffer.seek(0)
     return buffer

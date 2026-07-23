@@ -11,6 +11,9 @@ import streamlit as st
 # 동일하게 os.environ만 읽으므로 여기서 미리 os.environ에 반영해준다. 반드시 stock_utils import
 # 이전에 실행해야 한다 — stock_utils가 모듈 로드 시점에 환경변수를 읽기 때문이다.
 try:
+    # st.secrets.items(): Streamlit Cloud의 Secrets 설정을 (키, 값) 쌍으로 순회한다.
+    # os.environ.setdefault(key, value): 이미 그 이름의 환경변수가 있으면 그대로 두고,
+    # 없을 때만 새로 설정한다 — 로컬 .env로 이미 설정된 값을 덮어쓰지 않기 위해서다.
     for key, value in st.secrets.items():
         os.environ.setdefault(key, str(value))
 except Exception:
@@ -26,9 +29,18 @@ from stock_utils import (
     describe_price_trend,
 )
 
+# st.set_page_config(): 브라우저 탭 제목/아이콘 등 페이지 전체 설정. 스크립트에서 다른
+# st.* 호출보다 먼저 딱 한 번만 호출해야 한다.
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
-st.title("📈 관심종목 현재가 대시보드")
+st.title("📈 관심종목 현재가 대시보드")  # 화면 맨 위 큰 제목.
 
+# st.button(): 버튼을 화면에 그리고, "이번 실행에서 방금 눌렸는지"를 True/False로 돌려준다.
+# 중요한 건 Streamlit의 실행 모델이다 — 이 파일은 한 번 실행되고 끝나는 게 아니라, 페이지를
+# 새로고침하거나 버튼을 누르는 등 뭔가와 상호작용할 때마다 맨 위(import문)부터 이 파일 전체가
+# 다시 통째로 실행된다. 즉 아래의 "종목 조회 → 그래프 생성" 코드도 버튼을 누를 때마다 매번
+# 새로 실행되어 최신 데이터를 다시 가져온다. st.rerun()은 "지금 즉시 이 스크립트를 처음부터
+# 다시 실행해줘"라고 명시적으로 요청하는 것이다(안 불러도 상호작용 자체가 재실행을 유발하지만,
+# 버튼을 누른 즉시 화면을 깔끔하게 다시 그리기 위해 명시적으로 호출했다).
 if st.button("🔄 새로고침"):
     st.rerun()
 
@@ -36,6 +48,8 @@ codes = read_watchlist()
 history = load_price_history()
 watchlist_names = read_watchlist_names()
 
+# codes or []: read_watchlist()가 실패해서 None을 반환해도, None을 순회하려다 에러가 나는 대신
+# 빈 리스트로 대체해 그냥 "표시할 종목이 없다"는 상태로 조용히 넘어간다.
 for code in codes or []:
     current = fetch_naver_current_price(code)
     daily_closes = history.get(code, [])
@@ -57,7 +71,9 @@ for code in codes or []:
 
     intraday = fetch_naver_intraday_minutes(code)
 
-    st.subheader(f"{current['name']} ({code})")
+    st.subheader(f"{current['name']} ({code})")  # 종목명(코드) 형태의 소제목.
+    # st.metric(): 라벨 + 큰 숫자(value) + 증감(delta)을 카드 형태로 보여주는 위젯.
+    # delta 값이 양수/음수면 Streamlit이 자동으로 초록/빨강 화살표까지 붙여준다.
     st.metric(
         label=describe_price_trend(daily_closes, intraday),
         value=f"{current['price']:,}원",
@@ -67,4 +83,4 @@ for code in codes or []:
     chart_buffer = build_price_chart(
         code, current["name"], daily_closes, current["price"], intraday
     )
-    st.image(chart_buffer)
+    st.image(chart_buffer)  # build_price_chart()가 만든 PNG 바이트 버퍼를 그대로 화면에 그린다.

@@ -15,19 +15,23 @@ from stock_utils import (
     fetch_naver_current_price,
 )
 
+# 이 파일은 함수로 감싸지 않고 맨 위에서 아래로 순서대로 실행되는 "스크립트" 형태다
+# (notify_stock_price.py처럼 함수로 감싸 재사용할 필요가 없어서 더 단순하게 작성했다).
 if not is_trading_day():
     print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 종가 수집을 건너뜁니다.")
-    exit()
+    exit()  # 스크립트를 여기서 즉시 종료한다 (아래 코드는 실행되지 않는다).
 
 watchlist_codes = read_watchlist()
 if watchlist_codes is None:
     exit()
 
+# datetime.now(): 지금 이 순간의 날짜+시각. .strftime("%Y%m%d")로 "20260723" 같은
+# 8자리 문자열로 바꾼다 — Turso DB의 date 컬럼과 같은 형식을 맞추기 위해서다.
 today_str = datetime.now().strftime("%Y%m%d")
 
 print(f"🚀 [{today_str}] 종가 수집 시작...")
 
-collected = 0
+collected = 0  # 실제로 저장에 성공한 종목 수를 센다.
 for code in watchlist_codes:
     info = fetch_naver_current_price(code)
     if info is None:

@@ -15,9 +15,11 @@
 를 push와 나란히 두는 방향으로 프로젝트 범위가 넓어졌다. push와 pull 두 경로가 13주차에 만드는
 동일한 Turso DB를 공유하므로, 이 문서의 주차 구성 자체는 바뀌지 않는다 — `dashboard.py`는
 `stock_utils.py`가 이미 제공하는 함수(`read_watchlist`/`load_price_history`/
-`fetch_naver_current_price`/`build_price_chart` 등)를 그대로 재사용하는 얇은 레이어라, 텔레그램
-알림 로직을 다루는 6~8주차 실습을 마친 학생이라면 추가 개념 없이 읽을 수 있는 수준이다. 자세한
-논의 과정은 `ROADMAP.md`의 "전략적 재검토" 절 참고.
+`fetch_naver_current_price`/`build_price_chart` 등)를 그대로 재사용하는 얇은 레이어라 함수
+재사용 자체는 텔레그램 알림 로직을 다루는 6~8주차 실습을 마친 학생이라면 추가 개념 없이 읽을
+수 있다. 다만 **Streamlit이 상호작용마다 스크립트 전체를 처음부터 다시 실행한다는 실행 모델**은
+지금까지 만든 "한 번 실행되고 끝"인 스크립트들과는 다른, 이 프로젝트에서 처음 접하는 개념이라
+13주차에서 별도로 짚는다. 자세한 논의 과정은 `ROADMAP.md`의 "전략적 재검토" 절 참고.
 
 ## 1. 수업 개요
 
@@ -38,7 +40,10 @@
 - Git/GitHub의 기본 개념 (커밋, 원격 저장소, push, 저장소를 상태 저장 수단으로 쓰는 아이디어)
 - CI/CD의 기초 개념 (GitHub Actions, cron 스케줄, `workflow_dispatch`, 권한(permissions))
 - 파일 기반 저장(JSON) vs 관계형 DB 저장(SQL/Turso)의 구조적 차이
-- SQL 기본 문법 (`CREATE TABLE`, `INSERT`, `SELECT`, `DELETE`, `PRIMARY KEY`)
+- SQL 기본 문법 (`CREATE TABLE`, `INSERT`, `SELECT`, `DELETE`, `PRIMARY KEY`)과, 실전에서
+  자주 쓰이는 두 응용 패턴 — upsert(`INSERT ... ON CONFLICT DO UPDATE`: 같은 키가 이미 있으면
+  덮어쓰고 없으면 새로 넣기)와 서브쿼리를 활용한 정리(`DELETE ... WHERE ... NOT IN (SELECT ...
+  ORDER BY ... LIMIT ?)`: 최근 N개만 남기고 나머지를 지우기)
 - 코드 모듈화/관심사 분리 개념 (`stock_utils.py`가 두 스크립트의 공용 함수를 담당하는 구조)
 - 시간대(UTC/KST), 거래일 판별 등 도메인 지식과 이것이 실제 버그로 이어지는 사례
 - 텔레그램 봇의 인터랙티브 컴포넌트(리플라이 키보드, 고정 메뉴 명령어)와 각각의 한계
@@ -86,7 +91,9 @@
 - 관련 파일/실습: 임의의 숫자 리스트로 그래프 그려보기 후 `build_price_chart()` 코드 읽어보기
 
 **4주 — 외부 API 호출 기초**
-- 학습 내용: `requests`로 HTTP GET 요청, JSON 응답 구조 이해, 네이버 금융 API로 현재가 조회
+- 학습 내용: `requests`로 HTTP GET 요청, **JSON 구조 이해**(키-값 쌍이 중첩된 텍스트 형식으로,
+  파이썬의 딕셔너리·리스트와 거의 그대로 대응된다는 것 — `response.json()`이 이 문자열을
+  실제 파이썬 딕셔너리로 바꿔준다), 네이버 금융 API로 현재가 조회
 - 관련 파일/실습: `fetch_naver_current_price()` 직접 작성해보기
 
 **5주 — 텔레그램 봇 만들기 & 비밀정보 관리**
@@ -138,12 +145,24 @@
 - 관련 파일/실습: `price_history` 테이블 스키마 설계 (`CREATE TABLE`)
 
 **13주 — Turso 마이그레이션 & 최종 점검**
-- 학습 내용: `libsql-client`로 DB 연동, `load_price_history`/`update_price_history`를 SQL 쿼리로 교체, 워크플로에서 git 커밋 스텝 제거, 전체 파이프라인 종단간 테스트 및 발표
+- 학습 내용: `libsql-client`로 DB 연동, `load_price_history`/`update_price_history`를 SQL 쿼리로
+  교체, 워크플로에서 git 커밋 스텝 제거, 전체 파이프라인 종단간 테스트 및 발표
+  - `update_price_history()`에 쓰인 두 SQL 패턴을 구체적으로 다룬다: (1) 같은 (종목, 날짜)
+    조합이 이미 있으면 덮어쓰고 없으면 새로 넣는 `INSERT ... ON CONFLICT (code, date) DO
+    UPDATE SET close = excluded.close` — 매번 "있는지 먼저 확인 후 분기"하지 않고 한 문장으로
+    처리하는 upsert. (2) 종목별로 최근 `N`개(`NUM_HISTORY_DAYS`)보다 오래된 행만 지우는
+    `DELETE ... WHERE code = ? AND date NOT IN (SELECT date FROM price_history WHERE code = ?
+    ORDER BY date DESC LIMIT ?)` — 안쪽 `SELECT`로 "남겨야 할 최신 N개의 날짜"를 먼저 뽑고,
+    바깥쪽 `DELETE`가 그 목록에 없는 나머지를 지우는 서브쿼리 활용.
 - 관련 파일/실습: `stock_utils.py` DB 버전 완성, 최종 데모
 - 심화(선택): `dashboard.py`(Streamlit)를 함께 열어, `stock_utils.py`의 `load_price_history()`를
   DB 버전으로 바꾸는 순간 텔레그램 알림과 대시보드 양쪽에 동시에 반영되는 것을 직접 확인해본다 —
   "공용 함수 모듈을 왜 분리했는가"(7주차)의 효과가 저장 방식이 바뀌는 순간에도 그대로 유지된다는
-  것을 보여주는 실습이다.
+  것을 보여주는 실습이다. 이때 Streamlit 고유의 실행 모델도 함께 짚는다: 지금까지 만든
+  스크립트는 위에서 아래로 한 번 실행되고 끝이었지만, Streamlit 앱은 페이지를 새로고침하거나
+  `st.button("🔄 새로고침")`을 누르는 등 화면과 상호작용할 때마다 `dashboard.py` 전체가
+  맨 위(import문)부터 다시 실행된다 — 즉 종목 리스트를 읽고 네이버 API를 조회하는 코드가
+  "한 번만 실행"이 아니라 "열 때마다·누를 때마다 매번 새로 실행"된다는 점이 핵심이다.
 
 **설계 의도**: 2~3주에 pandas·matplotlib **문법 자체**를 프로젝트와 분리해 먼저 익히고,
 6주·8주에 그 지식을 실제 프로젝트 코드에 적용하는 2단계 구성으로 바꿨다 — 처음 API/텔레그램
