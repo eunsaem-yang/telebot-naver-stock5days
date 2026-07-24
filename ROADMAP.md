@@ -1154,7 +1154,8 @@ GitHub 토큰 페이지에서 바로 확인 가능하니 이걸 먼저 배제하
    오늘 `notify.yml`/`check_manual_trigger.yml` 두 워크플로는 외부 cron 이중화를 점검·수리했지만
    (위 "cron-job.org 이중 트리거 실제 도입", "사용자 본인 저장소 반영 및 트러블슈팅" 절 참고),
    `collect_close.yml`은 여전히 GitHub 네이티브 `schedule`에만 의존한다 — 스킵되면 그날 종가가
-   조용히 안 쌓인다.
+   조용히 안 쌓인다. **→ 2026-07-24에 해결, 아래 "collect_close.yml에 cron-job.org 이중 트리거
+   추가" 절 참고.**
 2. **`load_price_history()`의 Turso 연결에 타임아웃이 없다.** 네이버 API처럼 Turso 접속이
    막히면 최대 5분(aiohttp 기본값)까지 대시보드가 멈출 수 있는데, `concurrent.futures` 스레드
    기반 해결책은 "커리큘럼이 가르치는 개념 수준을 초과한다"는 이유로 구현하지 않기로 했다
@@ -1164,5 +1165,52 @@ GitHub 토큰 페이지에서 바로 확인 가능하니 이걸 먼저 배제하
    추정했을 뿐이다 (위 "배포 후 재확인: Reboot으로 네이버 API 연결이 다시 정상화됨" 절 참고).
    재발 가능성은 남아있고, 오늘 추가한 "히스토리만 표시" 폴백이 안전망 역할을 한다.
 
-**다음 대화에서**: 이 세 가지를 그대로 고칠지("완전히 해결"), 아니면 계속 "알려진 한계"로
-문서화만 하고 우선순위를 낮출지 사용자와 다시 논의해서 결정한다.
+**다음 대화에서**: 남은 두 가지(2, 3)를 그대로 고칠지("완전히 해결"), 아니면 계속 "알려진
+한계"로 문서화만 하고 우선순위를 낮출지 사용자와 다시 논의해서 결정한다.
+
+## collect_close.yml에 cron-job.org 이중 트리거 추가 (2026-07-24, 완료)
+
+위 미해결 1번을 해결했다. `notify.yml`/`check_manual_trigger.yml`과 동일한 패턴으로 세 번째
+cron-job.org 작업을 등록했다.
+
+#### 등록 스텝바이스텝
+
+1. `https://console.cron-job.org/jobs` 로그인 → **CREATE CRONJOB**.
+2. **Common 탭**: Title에 `collect_close.yml` 같은 구분용 이름, URL에
+   `https://api.github.com/repos/eunsaem-yang/telebot-naver-stock5days/actions/workflows/collect_close.yml/dispatches`,
+   Request method는 `POST`.
+3. **Advanced 탭(Headers)**: 기존 `notify.yml`/`check_manual_trigger.yml` 작업에 등록된
+   것과 **같은 PAT**를 그대로 재사용(저장소 단위 권한이라 작업별로 나눌 필요 없음, 새로
+   타이핑하기보다 기존 작업 헤더를 복사해 붙여넣는 편이 오타 위험이 적음).
+   ```
+   Authorization: Bearer <PAT>
+   Accept: application/vnd.github+json
+   ```
+   "Requires HTTP authentication"(Basic Auth 전용 별도 옵션)은 켜지 않는다 — 켜면
+   `Authorization` 헤더와 충돌해 401이 난다.
+4. **Request Body**: `{"ref":"main"}`
+5. **Schedule 탭**: 프리셋이 아니라 **Custom 모드**로 전환(평일만+특정 시각 조합은
+   프리셋에서 옵션 자체가 비활성화됨). Minutes `45` / Hours `15` / Days of week 월~금
+   체크, Timezone은 반드시 `Asia/Seoul`(UTC로 두면 12~13시간 밀림) — `collect_close.yml`의
+   GitHub 네이티브 스케줄(`45 6 * * 1-5` UTC = KST 15:45 평일)과 동일한 시각으로 맞춤.
+6. **SAVE** 후 **Test Run**으로 `204 No Content` 확인 → `gh run list --workflow=collect_close.yml`
+   (또는 GitHub Actions 웹 페이지)로 방금 `workflow_dispatch` 실행이 성공했는지 확인. 401이
+   나면 토큰이 틀린 게 아니라 cron-job.org UI가 저장된 헤더를 요청에 안 실어 보내는 재발성
+   버그일 가능성이 높으므로, 헤더 값을 지우고 동일하게 재입력·재저장해본다.
+
+검토했던 대안(노선 채택 안 함): `notify.yml` 작업에 장마감 이후 시각을 하나 더 추가하는 방식.
+`notify.yml`은 `notify_stock_price.py`(텔레그램 전송만, DB 저장 없음)를 실행하고
+`collect_close.yml`은 `collect_daily_close.py`(DB 저장만, 텔레그램 전송 없음)를 실행하므로
+서로 다른 스크립트다 — 시간만 추가하면 원치 않는 4번째 텔레그램 알림만 늘어날 뿐 종가 히스토리는
+여전히 안 쌓인다. 두 스크립트의 책임을 분리한 기존 설계를 유지하기 위해 3번째 작업을 별도로
+등록하는 쪽을 택했다.
+
+검증: 등록 직후 Test Run → cron-job.org 쪽 `204 No Content` 확인. 로컬에 `gh` CLI가 없어
+Homebrew로 설치(`brew install gh`) 후 `gh run list --workflow=collect_close.yml`로 확인한
+결과, `workflow_dispatch`(방금 Test Run)와 `schedule`(GitHub 네이티브) 두 이벤트 모두 성공(✓)
+확인됨 — 401 없이 인증 통과.
+
+**남은 확인**: Test Run(수동) 성공과 "평일 15:45 KST에 아무 개입 없이 자동으로 도는지"는 별개
+문제였던 전례가 있다(위 "cron-job.org 이중 트리거 실제 도입" 절 참고). 다음 평일 15:45 KST
+이후 `gh run list --workflow=collect_close.yml`로 자동 `workflow_dispatch` 실행이 찍히는지
+한 번 더 확인하면 완전히 마무리된다.
