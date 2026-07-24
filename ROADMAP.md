@@ -1183,7 +1183,8 @@ GitHub 토큰 페이지에서 바로 확인 가능하니 이걸 먼저 배제하
 2. **`load_price_history()`의 Turso 연결에 타임아웃이 없다.** 네이버 API처럼 Turso 접속이
    막히면 최대 5분(aiohttp 기본값)까지 대시보드가 멈출 수 있는데, `concurrent.futures` 스레드
    기반 해결책은 "커리큘럼이 가르치는 개념 수준을 초과한다"는 이유로 구현하지 않기로 했다
-   (위 "폴백 UI 실제 확인 + 부가 개선 두 가지" 절 관련 논의 참고). 알려진 한계로 남겨둠.
+   (위 "폴백 UI 실제 확인 + 부가 개선 두 가지" 절 관련 논의 참고). **→ 2026-07-24에 재검토,
+   알려진 한계로 최종 확정. 아래 "Turso 타임아웃 해결 방안 재검토" 절 참고.**
 3. **Streamlit Cloud ↔ 네이버 API 차단의 근본 원인이 확정되지 않았다.** Manage app → Reboot
    app으로 우연히 풀렸고, Streamlit Cloud 컨테이너의 특정 egress IP 대역이 차단됐을 가능성만
    추정했을 뿐이다 (위 "배포 후 재확인: Reboot으로 네이버 API 연결이 다시 정상화됨" 절 참고).
@@ -1238,3 +1239,40 @@ Homebrew로 설치(`brew install gh`) 후 `gh run list --workflow=collect_close.
 문제였던 전례가 있다(위 "cron-job.org 이중 트리거 실제 도입" 절 참고). 다음 평일 15:45 KST
 이후 `gh run list --workflow=collect_close.yml`로 자동 `workflow_dispatch` 실행이 찍히는지
 한 번 더 확인하면 완전히 마무리된다.
+
+## Turso 타임아웃 해결 방안 재검토 (2026-07-24, 알려진 한계로 최종 확정)
+
+위 미해결 2번을 다시 논의했다. 코드는 변경하지 않고, `libsql_client` 소스까지 확인해 원인과
+대안을 짚어본 뒤 기존 결정을 유지하기로 했다.
+
+### 확인한 사실
+
+- `stock_utils.py`의 `_get_turso_client()`가 호출하는 `libsql_client.create_client_sync()`는
+  공개 API로 타임아웃을 넘길 방법이 없다. HTTPS 접속 시 라이브러리 내부에서
+  `aiohttp.ClientSession(headers=...)`를 타임아웃 인자 없이 생성하므로, 응답이 없으면
+  aiohttp 기본값인 **300초(5분)**를 그대로 기다린다.
+- 흥미로운 점: `create_client_sync()`가 반환하는 `ClientSync`는 이미 내부적으로 **백그라운드
+  스레드 + asyncio 이벤트 루프**로 동기 인터페이스를 흉내내는 구조다. 즉 "스레드 개념을
+  넘어선다"고 판단했던 복잡성이 사실 라이브러리 내부엔 이미 숨어 있고, 지금도 학생들은 그
+  내부를 몰라도 이 함수를 문제없이 쓰고 있다.
+
+### 검토한 대안 두 가지 (둘 다 채택 안 함)
+
+1. **`concurrent.futures.ThreadPoolExecutor`로 감싸기**: `load_price_history()`의 기존 본문을
+   내부 함수로 옮기고, `ThreadPoolExecutor(max_workers=1).submit(...)` +
+   `future.result(timeout=10)`로 감싸 10초 안에 안 끝나면 빈 딕셔너리를 반환. 로직은 그대로고
+   래퍼만 ~10줄 추가되지만, `ThreadPoolExecutor`/`submit`/`future.result(timeout=...)`라는
+   새 개념이 코드에 등장한다.
+2. **`aiohttp.ClientSession.__init__`을 몽키패치**: `_get_turso_client()` 안에서 세션 생성
+   전에 `__init__`을 감싸 `timeout=aiohttp.ClientTimeout(total=10)`을 기본값으로 끼워 넣는
+   방식. 스레드 개념은 전혀 안 나오지만, "다른 라이브러리의 클래스 동작을 실행 중에
+   바꿔치기한다"는 더 낯선 기법이 들어가고, `libsql_client`가 내부적으로 계속 aiohttp를
+   쓴다는 비공개 구현 세부사항에 의존해 라이브러리 버전이 바뀌면 조용히 무력화될 수 있다.
+
+### 결론
+
+두 방식 모두 대화 중 예시 코드로만 확인하고 실제 반영은 하지 않기로 했다. 결정적인 이유는
+**이 문제가 아직 한 번도 실제로 발생한 적이 없다는 것** — 네이버 API 차단(위 관련 절들)은
+이틀 연속 실제로 겪었지만, Turso 접속 지연/무응답은 관측된 적이 없는 이론적 위험이다. 일어난
+적 없는 문제를 막으려고 학생 예제 코드에 새 개념(스레드든 몽키패치든)을 넣는 것은 커리큘럼
+설계 원칙과 맞지 않는다고 판단해 **알려진 한계로 최종 확정**한다.
