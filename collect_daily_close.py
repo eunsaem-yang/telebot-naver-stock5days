@@ -14,6 +14,7 @@ from stock_utils import (
     read_watchlist,
     update_price_history,
     fetch_naver_current_price,
+    get_turso_client,
 )
 
 # 이 파일은 함수로 감싸지 않고 맨 위에서 아래로 순서대로 실행되는 "스크립트" 형태다
@@ -35,26 +36,32 @@ today_str = datetime.now(KST).strftime("%Y%m%d")
 print(f"🚀 [{today_str}] 종가 수집 시작...")
 
 collected = 0  # 실제로 저장에 성공한 종목 수를 센다.
-for code in watchlist_codes:
-    info = fetch_naver_current_price(code)
-    if info is None:
-        continue
+# get_turso_client()를 루프 밖에서 딱 한 번만 호출해 클라이언트 하나를 만들고, 종목마다
+# update_price_history()에 그 client를 넘겨 재사용한다 — 관심종목이 몇 개 안 될 때는 차이가
+# 작지만, 종목 수가 늘어날수록(예: 20개) 종목마다 새로 연결을 맺고 매번 테이블 존재 확인
+# 쿼리까지 반복하는 비용을 줄여준다. with 문이라 루프가 끝나면(예외가 나도) client.close()가
+# 자동으로 호출된다.
+with get_turso_client() as client:
+    for code in watchlist_codes:
+        info = fetch_naver_current_price(code)
+        if info is None:
+            continue
 
-    if info["is_open"]:
-        # 장마감 후 실행되어야 하는 스크립트인데 아직 장중이면 종가가 확정되지 않은
-        # 상태이므로 히스토리에 반영하지 않는다 (실행 시각 설정을 다시 확인해야 함).
-        print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
-        continue
+        if info["is_open"]:
+            # 장마감 후 실행되어야 하는 스크립트인데 아직 장중이면 종가가 확정되지 않은
+            # 상태이므로 히스토리에 반영하지 않는다 (실행 시각 설정을 다시 확인해야 함).
+            print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
+            continue
 
-    if info["price"] <= 0:
-        # 네이버 응답 파싱 실패 시 fetch_naver_current_price()가 조용히 0을 반환하는데,
-        # 이걸 그대로 저장하면 히스토리가 0원으로 오염된다 (그래프·전일 대비 계산이 깨짐).
-        print(f"⚠️ [{code}] 종가 조회 실패(0원). 기록하지 않습니다.")
-        continue
+        if info["price"] <= 0:
+            # 네이버 응답 파싱 실패 시 fetch_naver_current_price()가 조용히 0을 반환하는데,
+            # 이걸 그대로 저장하면 히스토리가 0원으로 오염된다 (그래프·전일 대비 계산이 깨짐).
+            print(f"⚠️ [{code}] 종가 조회 실패(0원). 기록하지 않습니다.")
+            continue
 
-    update_price_history(code, today_str, info["price"])
-    collected += 1
-    print(f"✅ [{code}] {info['name']} 종가 {info['price']:,}원 기록")
+        update_price_history(code, today_str, info["price"], client=client)
+        collected += 1
+        print(f"✅ [{code}] {info['name']} 종가 {info['price']:,}원 기록")
 
 if collected == 0:
     print("❌ 기록된 종가가 하나도 없습니다.")

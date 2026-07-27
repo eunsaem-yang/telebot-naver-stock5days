@@ -63,6 +63,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   읽기/쓰기, 텔레그램 메시지·이미지·업데이트 조회, 그래프 생성, 거래일 판별) 모음. 그중
   `describe_price_trend()`(추이 설명 문구)와 `format_rate_badge()`(가격+세모 이모지+등락률
   문자열)는 텔레그램과 대시보드가 같은 표기를 쓰도록 공용으로 뺀 함수다.
+  `update_price_history()`는 `client` 인자를 선택적으로 받는다 — 안 넘기면 스스로 Turso
+  클라이언트를 만들고 닫지만, `collect_daily_close.py`처럼 종목을 여러 개 순회하며 반복
+  호출할 때는 `get_turso_client()`로 미리 만든 클라이언트를 넘겨 재사용해 종목마다 새
+  연결을 맺지 않는다(관심종목이 많아질 때를 대비한 최적화, 지금 3종목 규모에선 차이가 작음).
 
 과거 종가 히스토리는 `price_history.json` 파일 대신 **Turso**(libSQL 기반 서버리스 SQLite,
 `libsql-client`로 연동)의 `price_history` 테이블에 저장한다. 자세한 배경은 아래 "환경 변수"와

@@ -1357,6 +1357,8 @@ stock/{code}/basic`)를 없애거나 응답 형식을 바꾸면**, 이건 IP 문
 **한계**: 그날 수업 진행용 임시방편일 뿐, 실제 서비스(텔레그램 push/대시보드)가 막혔을 때의
 해법은 아니다 — 그건 위 SPOF 리스크 절에 남긴 내용 그대로 유효하다.
 
+**다음에 이어서**: 실제 구현(샘플 캡처 + 토글 추가) 여부와 시점은 아직 결정 안 함.
+
 ## 그래프·텔레그램·대시보드 표시 방식 대개편 (2026-07-27~28)
 
 한 세션 안에서 그래프 가독성 문제(과거 종가 조밀함)를 고치다가, 텔레그램 서식과 대시보드 UI
@@ -1413,12 +1415,24 @@ stock/{code}/basic`)를 없애거나 응답 형식을 바꾸면**, 이건 IP 문
 실익도 없다고 판단). 매개변수와 해당 분기를 제거하고, 남은 두 분기가 동일 문자열을 반환하던
 중복도 `if intraday_minutes or daily_closes:` 한 줄로 합쳤다.
 
-### 아직 남겨둔 것 (Tier2/3, HANDOFF.md 참고)
+### 후속 정리: 공용 헬퍼 추출 + Turso 클라이언트 재사용 (2026-07-28)
 
-- `describe_price_trend()`가 세는 "최근 N일"과 dedup 이후 그래프에 실제로 그려지는 일수가
-  어긋날 수 있는 엣지케이스(오늘 날짜가 이미 DB에 있는 상태에서 분봉이 생길 때)
-- `today_price` 계산 로직이 `notify_stock_price.py`/`dashboard.py`에 중복 — 공용 헬퍼 추출 후보
-- `collect_daily_close.py` 루프의 Turso 클라이언트 매 종목 재생성 (기존 Tier3)
-- `telebot.py`의 timeout/예외처리 없음 (기존 Tier3)
+같은 날 대화를 이어가며 위에서 "아직 남겨둔 것"으로 분류했던 항목들도 마저 처리했다.
 
-**다음에 이어서**: 실제 구현(샘플 캡처 + 토글 추가) 여부와 시점은 아직 결정 안 함.
+- **개수 불일치 해결**: `describe_price_trend()`가 세는 "최근 N일"과 `build_price_chart()`가
+  실제로 그리는 일수가 어긋날 수 있던 문제를, `dedupe_daily_closes(daily_closes, today_price,
+  intraday_minutes)` 공용 헬퍼로 통일해 해결했다. `build_price_chart()` 내부와
+  `describe_price_trend()` 호출부(텔레그램 대표 종목 헤더, 대시보드 추이 문구)가 모두 같은
+  헬퍼를 거치므로 항상 같은 개수를 센다.
+- **`today_price` 중복 제거**: `notify_stock_price.py`/`dashboard.py`에 각자 있던
+  `가격 if (is_open or intraday) else None` 계산을 `resolve_today_price()` 헬퍼로 통일했다.
+- **Turso 클라이언트 재사용**: "관심종목이 20개 규모로 늘어나면 어떻게 하는 게 좋은가"라는
+  질문에 답하다가, 그 자리에서 구현까지 진행했다. `_get_turso_client()`를 `get_turso_client()`로
+  공개 함수화하고, `update_price_history()`에 선택적 `client` 인자를 추가(안 넘기면 기존처럼
+  스스로 만들고 닫아 하위 호환 유지). `collect_daily_close.py`는 종목 루프 밖에서 클라이언트를
+  한 번만 만들어 재사용하도록 바꿔, 종목 수가 늘어나도 연결·`CREATE TABLE` 반복 비용이 늘지
+  않는다. 실제 관심종목과 안 겹치는 가짜 테스트 코드로 클라이언트 공유·기존 호출 방식(client
+  생략) 양쪽 다 정상 동작을 확인한 뒤 정리했다.
+- **`telebot.py`의 timeout/예외처리 없음**: 1회성 로컬 스크립트라 수정하지 않기로 확정.
+
+이로써 HANDOFF.md에 기록됐던 이번 세션의 Tier2/3 항목이 모두 정리됐다.
