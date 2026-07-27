@@ -110,8 +110,9 @@ for code in codes or []:
         )
         trend_shown = True
 
-    # 종목명(코드)과 가격·등락을 한 줄에 같은 글자 크기로 표시한다. 종목명만 <b>로 굵게 강조하고
-    # 나머지(코드·가격·등락)는 일반 굵기로 둔다. 색상은 한국 증시 관례(상승=빨강/하락=초록)를 따른다.
+    # 종목명(코드)은 한 줄, 가격·등락은 그 다음 줄(4칸 들여쓰기)에 표시한다. 한 줄에 다 넣으니
+    # 폭이 좁은 화면에서 넘쳐서 줄을 나눴다. 종목명만 <b>로 굵게 강조한다. 색상은 한국 증시
+    # 관례(상승=빨강/하락=초록)를 따른다.
     rate = current["rate"]
     if rate > 0:
         delta_arrow, delta_color = "▲", "#ff2b2b"
@@ -119,15 +120,12 @@ for code in codes or []:
         delta_arrow, delta_color = "▼", "#09ab3b"
     else:
         delta_arrow, delta_color = "▫", "#888888"
-    # 기존 1.4rem(≈16.8pt)을 기준으로, 종목명(코드)·가격은 2pt 작게(14.8pt), 등락 표시(화살표+%)는
-    # 기존 크기의 절반(16.8pt÷2=8.4pt)으로 pt 단위를 직접 지정한다.
     st.markdown(
         f"""
         <div style="font-size:14.8pt;">
-            📈 <b>{current['name']}</b> ({code})
-            &nbsp;&nbsp;
-            {current['price']:,}원
-            <span style="color:{delta_color};font-size:8.4pt;">{delta_arrow} {rate}%</span>
+            📈 <b>{current['name']}</b> ({code})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{current['price']:,}원
+            <span style="color:{delta_color};font-size:11pt;">{delta_arrow} {rate}%</span>
         </div>
         """,
         unsafe_allow_html=True,
