@@ -9,6 +9,7 @@ DB 자체가 영속 저장소이므로 이제 git 커밋 스텝이 필요 없다
 from datetime import datetime
 
 from stock_utils import (
+    KST,
     is_trading_day,
     read_watchlist,
     update_price_history,
@@ -25,9 +26,11 @@ watchlist_codes = read_watchlist()
 if watchlist_codes is None:
     exit()
 
-# datetime.now(): 지금 이 순간의 날짜+시각. .strftime("%Y%m%d")로 "20260723" 같은
-# 8자리 문자열로 바꾼다 — Turso DB의 date 컬럼과 같은 형식을 맞추기 위해서다.
-today_str = datetime.now().strftime("%Y%m%d")
+# datetime.now(KST): 지금 이 순간의 날짜+시각(한국 시간 기준). GitHub Actions는 UTC로 돌기
+# 때문에 시간대를 명시하지 않으면 수동/야간 실행 시 날짜가 하루 어긋날 수 있다.
+# .strftime("%Y%m%d")로 "20260723" 같은 8자리 문자열로 바꾼다 — Turso DB의 date 컬럼과
+# 같은 형식을 맞추기 위해서다.
+today_str = datetime.now(KST).strftime("%Y%m%d")
 
 print(f"🚀 [{today_str}] 종가 수집 시작...")
 
@@ -41,6 +44,12 @@ for code in watchlist_codes:
         # 장마감 후 실행되어야 하는 스크립트인데 아직 장중이면 종가가 확정되지 않은
         # 상태이므로 히스토리에 반영하지 않는다 (실행 시각 설정을 다시 확인해야 함).
         print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
+        continue
+
+    if info["price"] <= 0:
+        # 네이버 응답 파싱 실패 시 fetch_naver_current_price()가 조용히 0을 반환하는데,
+        # 이걸 그대로 저장하면 히스토리가 0원으로 오염된다 (그래프·전일 대비 계산이 깨짐).
+        print(f"⚠️ [{code}] 종가 조회 실패(0원). 기록하지 않습니다.")
         continue
 
     update_price_history(code, today_str, info["price"])

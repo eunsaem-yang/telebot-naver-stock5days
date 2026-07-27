@@ -15,6 +15,7 @@ import re
 import requests
 import holidays
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 # pandas/matplotlib은 read_watchlist()/build_price_chart() 안에서 그때그때 import한다.
@@ -25,6 +26,9 @@ from dotenv import load_dotenv
 
 WATCHLIST_FILE = "watchlist.csv"
 NUM_HISTORY_DAYS = 15
+# GitHub Actions 실행 환경은 UTC라 datetime.now()(naive)를 그대로 쓰면 스케줄 시각이 아닌
+# 수동/야간 실행 시 날짜가 하루 어긋날 수 있다. 항상 이 KST를 명시해서 기준 시간대를 고정한다.
+KST = ZoneInfo("Asia/Seoul")
 MANUAL_TRIGGER_TEXT = "📊 지금 현재가 확인"  # 리플라이 키보드 버튼 라벨이자 트리거 판별 문자열
 MANUAL_TRIGGER_KEYBOARD = {"keyboard": [[{"text": MANUAL_TRIGGER_TEXT}]], "resize_keyboard": True}
 MANUAL_TRIGGER_COMMAND = "/notify"  # 채팅 입력창 옆 고정 메뉴에 등록하는 명령어 (메시지를 지워도 안 사라짐)
@@ -45,8 +49,8 @@ _KR_HOLIDAYS = holidays.KR()
 
 def is_trading_day(date: datetime = None) -> bool:
     """평일이면서 한국 공휴일이 아닌 날(=KRX 개장일)인지 확인합니다."""
-    # 함수를 호출할 때 date를 안 넘기면(None) 지금 이 순간(오늘)을 기준으로 판단한다.
-    date = date or datetime.now()
+    # 함수를 호출할 때 date를 안 넘기면(None) 지금 이 순간(오늘, KST 기준)을 기준으로 판단한다.
+    date = date or datetime.now(KST)
     # datetime.weekday()는 월요일=0, 화요일=1, ... 일요일=6을 반환한다.
     # 5(토요일) 이상이면 주말이라는 뜻이므로 거래일이 아니다.
     if date.weekday() >= 5:  # 5=토요일, 6=일요일
@@ -244,7 +248,7 @@ def fetch_naver_intraday_minutes(code: str, date_str: str = None) -> list:
     돌려주는 방식이라, 우리 쪽에 별도로 저장할 필요가 없다 (자세한 배경은 ROADMAP.md "기능 5" 참고).
     응답이 EUC-KR 인코딩과 표준이 아닌 JSON이 섞여 있어 json.loads 대신 데이터 행만 정규식으로
     추출한다 (헤더의 한글 라벨은 깨지지만 숫자로 된 데이터 행은 영향받지 않는다)."""
-    date_str = date_str or datetime.now().strftime("%Y%m%d")
+    date_str = date_str or datetime.now(KST).strftime("%Y%m%d")
     url = "https://api.finance.naver.com/siseJson.naver"
     params = {"symbol": code, "requestType": 1, "startTime": date_str, "endTime": date_str, "timeframe": "minute"}
     try:
