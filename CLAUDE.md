@@ -20,12 +20,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `ROADMAP.md`의 "전략적 재검토" 절 참고.
 
 스크립트가 여러 개로 나뉘어 있다:
-- `notify_stock_price.py`: 하루 3회(10/12/2시) 실행. 관심종목 현재가를 텔레그램 텍스트 메시지로
-  보내고, Turso DB에 저장된 최근 15일 종가 뒤에 오늘 분봉(`fetch_naver_intraday_minutes()`,
-  네이버 API로 즉시 조회, 저장하지 않음)을 이어붙인 추이 그래프를 종목별로 `sendPhoto`로 전송한다.
-  과거 종가 자체는 직접 재조회하지 않는다. 실제 로직은 `send_price_notification()` 함수로 감싸져
-  있어, 텔레그램 트리거로 실행된 경우(`check_manual_trigger.yml`의 `notify` job)에도 동일한
-  스크립트(`python notify_stock_price.py`)를 그대로 실행해 재사용한다.
+- `notify_stock_price.py`: 하루 3회(10/12/2시) 실행. 텍스트 메시지는 "내 관심종목 현재가" 헤더 +
+  대표 종목 1개로 계산한 추이 설명(`describe_price_trend()`, 종목마다 거의 같은 문구라 반복 안 함)
+  만 보낸다. 종목별 상세(가격·등락)는 사진 캡션에 담아 종목별 `sendPhoto`로 전송한다 — 캡션은
+  종목명을 `<b>` 굵게(`send_telegram_photo()`가 `parse_mode="HTML"`로 보냄), 다음 줄에 4칸
+  들여쓴 `format_rate_badge()`(가격+세모 이모지+등락률)를 붙인다. 그래프는 Turso DB에 저장된
+  최근 15일 종가 뒤에 오늘 분봉(`fetch_naver_intraday_minutes()`, 네이버 API로 즉시 조회,
+  저장하지 않음)을 이어붙여 그리되, 분봉/현재가 조회에 성공했을 때만 DB의 "오늘 날짜" 항목을
+  제외하고 그린다(`build_price_chart()` 내부 dedup) — 장마감 후~다음 장 시작 전처럼 분봉도
+  없고 장도 닫혀있으면(`is_open=False`) 현재가를 아예 넘기지 않아, 필연적으로 마지막 종가와
+  같은 값이 "오늘" 점으로 중복 표시되는 걸 막는다. 과거 종가 자체는 직접 재조회하지 않는다.
+  실제 로직은 `send_price_notification()` 함수로 감싸져 있어, 텔레그램 트리거로 실행된
+  경우(`check_manual_trigger.yml`의 `notify` job)에도 동일한 스크립트(`python
+  notify_stock_price.py`)를 그대로 실행해 재사용한다.
 - `collect_daily_close.py`: 하루 1회, 장마감 직후 실행. 그날의 최종 종가를 조회해 Turso DB의
   `price_history` 테이블에 누적 저장(종목별 최근 15거래일치만 유지, 오래된 행은 자동 삭제)한다.
   예전에는 JSON 파일(`price_history.json`)을 저장소에 직접 커밋해 GitHub Actions의 상태 없는
@@ -34,8 +41,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `dashboard.py`: Streamlit 대시보드. `read_watchlist()`/`load_price_history()`/
   `fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/`build_price_chart()`를
   `notify_stock_price.py`와 그대로 공유해서 쓴다 — push/pull 두 경로가 같은 함수·같은 DB를
-  바라보므로 어느 쪽으로 확인해도 같은 내용을 본다. 로컬 실행은 `python -m streamlit run
-  dashboard.py`.
+  바라보므로 어느 쪽으로 확인해도 같은 내용을 본다(오늘 날짜 dedup, current_price=None 처리
+  등 위 `notify_stock_price.py` 설명의 그래프 관련 내용도 동일하게 적용됨). 종목명(코드)·
+  가격·등락은 `st.metric()` 대신 `st.markdown()` + 인라인 CSS로 직접 그려 글자 크기를 자유롭게
+  조정하고, 등락 색상은 **상승=빨강/하락=초록**으로 지정한다 — Streamlit `st.metric()` 기본값
+  (상승=초록/하락=빨강)이 한국 증시 관례와 반대라 의도적으로 뒤집은 것. 추이 설명도 종목마다
+  반복하지 않고 제목 아래 `st.empty()` 자리표시자로 한 번만 채운다. 로컬 실행은 `python -m
+  streamlit run dashboard.py`.
 - `check_manual_trigger.py`: 평일 장중 시간대(09~19시 KST)에 5분 간격으로 실행. 텔레그램에서
   수동 트리거가 있었는지(리플라이 키보드 버튼 `MANUAL_TRIGGER_TEXT` 또는 고정 메뉴 명령어
   `MANUAL_TRIGGER_COMMAND`="/notify" — 버튼이 붙은 메시지가 지워져도 명령어는 남아있음) `getUpdates`로
@@ -48,7 +60,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `setup_telegram_button.py`: 로컬에서 1회만 실행하는 설정 스크립트. 텔레그램 채팅창에 리플라이
   키보드 버튼을 노출시키고, 고정 메뉴에 `/notify` 명령어를 등록한다.
 - `stock_utils.py`: 여러 스크립트가 공유하는 함수(네이버 현재가 조회, Turso DB 히스토리
-  읽기/쓰기, 텔레그램 메시지·이미지·업데이트 조회, 그래프 생성, 거래일 판별) 모음.
+  읽기/쓰기, 텔레그램 메시지·이미지·업데이트 조회, 그래프 생성, 거래일 판별) 모음. 그중
+  `describe_price_trend()`(추이 설명 문구)와 `format_rate_badge()`(가격+세모 이모지+등락률
+  문자열)는 텔레그램과 대시보드가 같은 표기를 쓰도록 공용으로 뺀 함수다.
 
 과거 종가 히스토리는 `price_history.json` 파일 대신 **Turso**(libSQL 기반 서버리스 SQLite,
 `libsql-client`로 연동)의 `price_history` 테이블에 저장한다. 자세한 배경은 아래 "환경 변수"와
