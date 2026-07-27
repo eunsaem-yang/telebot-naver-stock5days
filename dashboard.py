@@ -103,17 +103,17 @@ for code in codes or []:
 
     if not trend_shown:
         # 종목마다 거의 동일한 문구가 반복되므로, 첫 종목 데이터로 한 번만 제목 아래에 채운다.
+        # &nbsp;: 일반 공백은 HTML에서 여러 개를 이어 써도 한 칸으로 줄어들어서, 눈에 보이는
+        # 4칸 들여쓰기를 만들려면 줄어들지 않는 공백(&nbsp;)을 대신 써야 한다.
         trend_placeholder.markdown(
-            f'<div style="font-size:0.9rem;color:gray;">'
-            f'{describe_price_trend(daily_closes, intraday)}</div>',
+            f'<div style="font-size:1.1rem;color:gray;">'
+            f'&nbsp;&nbsp;&nbsp;&nbsp;({describe_price_trend(daily_closes, intraday)})</div>',
             unsafe_allow_html=True,
         )
         trend_shown = True
 
-    st.markdown(f"##### 📈 {current['name']} ({code})")  # 종목명(코드) 형태의 소제목. st.subheader(h3)보다 작은 h5.
-
-    # st.metric()은 등락(delta)을 항상 값 아래 별도 줄에만 표시할 수 있어서, "원" 바로 옆에
-    # 붙이려면 직접 HTML로 만들어야 한다. 색상은 한국 증시 관례(상승=빨강/하락=초록)를 따른다.
+    # 종목명(코드)과 가격·등락을 한 줄에 같은 글자 크기로 표시한다. 종목명만 <b>로 굵게 강조하고
+    # 나머지(코드·가격·등락)는 일반 굵기로 둔다. 색상은 한국 증시 관례(상승=빨강/하락=초록)를 따른다.
     rate = current["rate"]
     if rate > 0:
         delta_arrow, delta_color = "▲", "#ff2b2b"
@@ -123,9 +123,11 @@ for code in codes or []:
         delta_arrow, delta_color = "▫", "#888888"
     st.markdown(
         f"""
-        <div style="font-size:1.4rem;font-weight:600;">
+        <div style="font-size:1.4rem;">
+            📈 <b>{current['name']}</b> ({code})
+            &nbsp;&nbsp;
             {current['price']:,}원
-            <span style="color:{delta_color};font-size:1rem;">{delta_arrow} {rate}%</span>
+            <span style="color:{delta_color};">{delta_arrow} {rate}%</span>
         </div>
         """,
         unsafe_allow_html=True,
