@@ -79,6 +79,10 @@ python -m streamlit run dashboard.py      # Pull 방식 대시보드 (원할 때
 의존성은 `requirements.txt`에 명시되어 있다 (`requests`, `python-dotenv`, `pandas`,
 `matplotlib`, `holidays`, `streamlit`, `libsql-client`).
 
+Streamlit Community Cloud에 배포해둔 대시보드는 `origin/main` 푸시를 감지해 보통 몇십 초~1분
+내로 자동 재배포되지만, 반영이 늦거나 안 될 때는 https://share.streamlit.io 에 직접 로그인해서
+앱 목록에서 해당 앱을 찾으면 Reboot에 접근할 수 있다.
+
 ## 자동 실행 (GitHub Actions)
 
 `.github/workflows/notify.yml`(10:05/12:05/14:05시 KST, 평일), `.github/workflows/collect_close.yml`
