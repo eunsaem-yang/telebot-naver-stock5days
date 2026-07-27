@@ -491,10 +491,8 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     # rotation=45, ha="right": 라벨이 많아 겹치지 않도록 45도 기울여서 오른쪽 정렬로 표시한다.
     ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=8)
 
-    ax.set_title(
-        f"{name} ({code}) "
-        f"{describe_price_trend(daily_closes, intraday_minutes, has_current=current_price is not None)}"
-    )
+    # 그림 안에는 더 이상 제목을 넣지 않는다 — 텔레그램 캡션/대시보드 subheader·metric이
+    # 이미 같은 문구(describe_price_trend())를 네이티브 텍스트로 보여주므로 중복이었다.
     ax.set_ylabel("가격 (원)")
     ax.grid(True, alpha=0.3)  # 배경에 옅은(투명도 0.3) 격자선을 넣어 값을 읽기 쉽게 한다.
     fig.tight_layout()  # 라벨/제목이 그림 밖으로 잘리지 않도록 여백을 자동으로 조정한다.
