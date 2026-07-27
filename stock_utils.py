@@ -390,6 +390,17 @@ def describe_price_trend(daily_closes: list, intraday_minutes: list, has_current
     return "현재가 (종가 히스토리 누적 전)"
 
 
+def _evenly_spaced(start: float, end: float, n: int) -> list:
+    """[start, end] 구간 안에 n개의 점을 균등한 간격으로 배치한 좌표 리스트를 반환합니다.
+    n=0이면 빈 리스트, n=1이면 구간 시작점(start) 하나만 반환합니다."""
+    if n <= 0:
+        return []
+    if n == 1:
+        return [start]
+    step = (end - start) / (n - 1)
+    return [start + step * i for i in range(n)]
+
+
 def build_price_chart(code: str, name: str, daily_closes: list, current_price: int = None,
                        intraday_minutes: list = None) -> io.BytesIO:
     """종목별 최근 N일 종가 + 오늘 추이를 선 그래프로 그려 PNG 이미지 버퍼로 반환합니다.
@@ -422,10 +433,20 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
 
     # 과거 종가 리스트 + 오늘 값 리스트를 이어붙여 하나의 선으로 그릴 전체 값 목록을 만든다.
     prices = daily_prices + today_prices
-    # x축 좌표는 그냥 0, 1, 2, ...처럼 순서대로 매긴다 (실제 날짜 간격이 아니라 "몇 번째 점인지").
-    x = list(range(len(prices)))
-    # daily_x: x 중에서 앞쪽(과거 종가에 해당하는) 부분만 슬라이싱으로 잘라낸다.
-    daily_x = x[:len(daily_prices)]
+
+    if intraday_minutes:
+        # 분봉은 하루에도 수십~수백 개가 나와서, x좌표를 그냥 "몇 번째 점인지"(0,1,2,...)로 매기면
+        # 점 개수가 훨씬 적은 과거 종가(15일 이하) 구간이 왼쪽 끝에 조밀하게 몰리고 그래프 대부분을
+        # 오늘 분봉이 차지해버린다. 그래서 점 개수 비율과 무관하게 x좌표를 절반씩
+        # (과거 종가 0.0~0.5, 오늘 분봉 0.5~1.0) 강제로 나눠 배치한다.
+        daily_x = _evenly_spaced(0.0, 0.5, len(daily_prices))
+        today_x = _evenly_spaced(0.5, 1.0, len(today_prices))
+        x = daily_x + today_x
+    else:
+        # 분봉이 없으면(현재가 한 점 또는 아예 없음) "오늘" 쪽 점이 하나뿐이라 절반씩 나눌 이유가
+        # 없으므로, 예전처럼 그냥 순서대로 이어지는 정수 좌표를 쓴다.
+        x = list(range(len(prices)))
+        daily_x = x[:len(daily_prices)]
 
     # fig(전체 도화지)와 ax(실제로 선·점을 그리는 좌표축)를 함께 만든다. figsize는 (가로, 세로)
     # 인치 단위 그림 크기다.
@@ -456,11 +477,11 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     tick_positions = list(daily_x)
     tick_labels = list(daily_labels)
     if intraday_minutes:
-        offset = len(daily_prices)  # 분봉 구간은 과거 종가 개수만큼 뒤에서 시작한다.
-        # enumerate(intraday_minutes): (인덱스, 값) 쌍을 함께 돌려준다.
-        for i, m in enumerate(intraday_minutes):
+        # zip(today_x, intraday_minutes): 위에서 절반 구간(0.5~1.0)에 재배치한 x좌표와 분봉을
+        # 순서대로 짝지어, 정각(HH:00)에 해당하는 분봉만 눈금으로 남긴다(전부 표시하면 겹침).
+        for xi, m in zip(today_x, intraday_minutes):
             if m["time"].endswith("00"):  # "HHMM" 문자열이 "00"으로 끝나면 정각(예: "0900")
-                tick_positions.append(offset + i)
+                tick_positions.append(xi)
                 # m['time'][:2]는 앞 2글자(시), m['time'][2:]는 그 뒤 전부(분) — "09:00" 형태로 조합.
                 tick_labels.append(f"{m['time'][:2]}:{m['time'][2:]}")
     elif current_price is not None:
