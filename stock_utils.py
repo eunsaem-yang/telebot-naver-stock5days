@@ -64,7 +64,14 @@ def is_trading_day(date: datetime = None) -> bool:
 def _load_watchlist_df(path: str = WATCHLIST_FILE):
     """watchlist.csv를 읽어 컬럼명을 정규화한 DataFrame을 반환하는 내부 헬퍼.
     read_watchlist()/read_watchlist_names()가 각자 pd.read_csv()+컬럼 정규화를 중복
-    구현하던 것을 여기 하나로 모았다 (두 함수의 반환 타입·인터페이스는 그대로 유지)."""
+    구현하던 것을 여기 하나로 모았다 (두 함수의 반환 타입·인터페이스는 그대로 유지).
+
+    이 함수는 실행되는 시점에 디스크에 있는 watchlist.csv를 그대로 읽는다 — 즉 "지금 이
+    컴퓨터(또는 실행 환경)에 있는 파일 내용"이 기준이다. GitHub Actions는 매번 실행할 때마다
+    저장소를 새로 체크아웃하므로 항상 origin/main의 최신 watchlist.csv를 읽지만, 로컬에서
+    스크립트를 실행할 때는 다르다 — GitHub 웹(모바일 포함)에서 watchlist.csv를 직접 편집·
+    커밋해도 그건 원격 저장소(GitHub)에만 반영되고, 로컬 복사본은 자동으로 안 바뀐다. 로컬
+    실행 결과에 그 변경을 반영하려면 먼저 `git pull origin main`으로 받아와야 한다."""
     import pandas as pd
 
     # pd.read_csv()는 CSV 파일을 읽어 표 형태의 자료구조인 DataFrame으로 돌려준다.
