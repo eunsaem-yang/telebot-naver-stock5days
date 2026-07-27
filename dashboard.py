@@ -103,11 +103,9 @@ for code in codes or []:
 
     if not trend_shown:
         # 종목마다 거의 동일한 문구가 반복되므로, 첫 종목 데이터로 한 번만 제목 아래에 채운다.
-        # &nbsp;: 일반 공백은 HTML에서 여러 개를 이어 써도 한 칸으로 줄어들어서, 눈에 보이는
-        # 4칸 들여쓰기를 만들려면 줄어들지 않는 공백(&nbsp;)을 대신 써야 한다.
         trend_placeholder.markdown(
             f'<div style="font-size:1.1rem;color:gray;">'
-            f'&nbsp;&nbsp;&nbsp;&nbsp;({describe_price_trend(daily_closes, intraday)})</div>',
+            f'{describe_price_trend(daily_closes, intraday)}</div>',
             unsafe_allow_html=True,
         )
         trend_shown = True
@@ -121,13 +119,15 @@ for code in codes or []:
         delta_arrow, delta_color = "▼", "#09ab3b"
     else:
         delta_arrow, delta_color = "▫", "#888888"
+    # 기존 1.4rem(≈16.8pt)을 기준으로, 종목명(코드)·가격은 2pt 작게(14.8pt), 등락 표시(화살표+%)는
+    # 기존 크기의 절반(16.8pt÷2=8.4pt)으로 pt 단위를 직접 지정한다.
     st.markdown(
         f"""
-        <div style="font-size:1.4rem;">
+        <div style="font-size:14.8pt;">
             📈 <b>{current['name']}</b> ({code})
             &nbsp;&nbsp;
             {current['price']:,}원
-            <span style="color:{delta_color};">{delta_arrow} {rate}%</span>
+            <span style="color:{delta_color};font-size:8.4pt;">{delta_arrow} {rate}%</span>
         </div>
         """,
         unsafe_allow_html=True,
