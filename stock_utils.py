@@ -398,6 +398,37 @@ def format_rate_badge(price: int, rate: float) -> str:
     return f"{prefix} ▫️ 0.0%"
 
 
+def resolve_today_price(price: int, is_open: bool, intraday_minutes: list) -> int:
+    """분봉/현재가 조회 결과로 build_price_chart()에 넘길 "오늘" 가격을 결정합니다. 장이
+    닫혀있고(is_open=False) 분봉도 없으면(장마감 후~다음 장 시작 전) 지금 조회한 가격은
+    DB의 마지막 종가와 같은 값이 필연적이므로 None을 돌려줘, "오늘" 점을 따로 안 그리게
+    합니다. notify_stock_price.py/dashboard.py가 공유합니다."""
+    # 삼항 표현식(조건부 표현식): "조건이 참이면 price, 거짓이면 None"을 한 줄로 쓴 것.
+    # is_open이 True(장중)면 무조건 살아있는 값이라 그대로 쓰고, is_open이 False라도
+    # intraday_minutes가 비어있지 않으면(장마감 직후라 분봉은 남아있는 경우) 마찬가지로 살려둔다.
+    # 둘 다 아니면(장마감 후~다음 장 시작 전) None을 돌려준다. 빈 리스트([])는 파이썬에서
+    # False로 취급되므로 intraday_minutes만 써도 "비어있지 않은지" 확인이 된다.
+    return price if (is_open or intraday_minutes) else None
+
+
+def dedupe_daily_closes(daily_closes: list, today_price: int, intraday_minutes: list) -> list:
+    """daily_closes에 오늘 날짜 종가가 섞여 있어도, 분봉/현재가로 "오늘" 구간을 따로 보여줄
+    때는(today_price가 있거나 intraday_minutes가 있으면) 제외한 리스트를 반환합니다.
+    build_price_chart()와 describe_price_trend() 호출부가 항상 같은 개수를 세도록 공용으로
+    뺐습니다. 분봉/현재가 조회 자체가 실패했으면(둘 다 없음) 원본 그대로 돌려줘 정보 손실을
+    막습니다."""
+    # today_price가 None(오늘 값 없음)이고 intraday_minutes도 비어있으면(둘 다 없음) "오늘"
+    # 구간을 아예 안 그리는 상황이므로, 걸러낼 필요 없이 원본 daily_closes를 그대로 돌려준다 —
+    # 이 경우 DB에 저장된 오늘 종가가 있어도(장마감 후 이미 수집된 경우) 정보 손실 없이 보여준다.
+    if today_price is None and not intraday_minutes:
+        return daily_closes
+    # 위 조건에 안 걸렸다는 건 "오늘" 구간을 실제로 따로 그린다는 뜻이므로, daily_closes 안에
+    # 오늘 날짜(today_str)와 같은 항목이 있으면 제외한다. 리스트 컴프리헨션으로 "오늘 날짜가
+    # 아닌 항목만" 새 리스트에 담는다 — 원본 리스트는 그대로 두고 필터링된 복사본을 반환한다.
+    today_str = datetime.now(KST).strftime("%Y%m%d")
+    return [entry for entry in daily_closes if entry["date"] != today_str]
+
+
 def _evenly_spaced(start: float, end: float, n: int) -> list:
     """[start, end] 구간 안에 n개의 점을 균등한 간격으로 배치한 좌표 리스트를 반환합니다.
     n=0이면 빈 리스트, n=1이면 구간 시작점(start) 하나만 반환합니다."""
@@ -436,14 +467,9 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     else:
         today_prices = []  # 분봉/현재가 조회 실패: "오늘" 지점 없이 과거 종가만 그린다.
 
-    if today_prices:
-        # 분봉/현재가를 성공적으로 불러와 "오늘" 구간을 따로 그릴 때는, daily_closes 안에
-        # 이미 오늘 날짜 종가가 섞여 있어도(장마감 후 collect_daily_close.py가 이미 실행돼
-        # DB에 오늘 종가가 저장된 경우) 제외한다 — 안 그러면 오늘 종가가 과거 종가 쪽 마지막
-        # 점과 "오늘" 구간 끝점에 중복으로 표시된다. 반대로 분봉/현재가 조회 자체가 실패하면
-        # (today_prices가 빈 리스트) DB에 저장된 오늘 종가가 있어도 그대로 남겨 정보 손실을 막는다.
-        today_str = datetime.now(KST).strftime("%Y%m%d")
-        daily_closes = [entry for entry in daily_closes if entry["date"] != today_str]
+    # daily_closes에 오늘 날짜 종가가 섞여 있어도, "오늘" 구간을 따로 그릴 때는 제외한다 —
+    # describe_price_trend() 호출부도 같은 헬퍼를 써서 항상 같은 개수를 세게 만든다.
+    daily_closes = dedupe_daily_closes(daily_closes, current_price, intraday_minutes)
 
     # daily_closes는 [{"date": "20260722", "close": 71000}, ...] 형태다.
     # x축에 표시할 짧은 날짜 라벨("07/22")을 문자열 슬라이싱으로 만든다:

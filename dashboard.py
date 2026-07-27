@@ -27,6 +27,8 @@ from stock_utils import (
     fetch_naver_intraday_minutes,
     build_price_chart,
     describe_price_trend,
+    resolve_today_price,
+    dedupe_daily_closes,
 )
 
 # st.set_page_config(): 브라우저 탭 제목/아이콘 등 페이지 전체 설정. 스크립트에서 다른
@@ -100,12 +102,22 @@ for code in codes or []:
         continue
 
     intraday = _cached_intraday(code)
+    # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(장마감 후~다음 장 시작 전) 지금
+    # 조회한 "현재가"는 daily_closes의 마지막 종가와 필연적으로 같은 값이라 None을 돌려받는다
+    # — build_price_chart()가 None을 받으면 "오늘" 점을 따로 안 그려서 중복 표시를 막는다.
+    # 이 today_price는 아래 trend_placeholder(추이 문구)와 맨 아래 build_price_chart() 호출
+    # 양쪽에서 재사용한다 — 매번 새로 계산하지 않고 한 번만 계산해서 쓴다.
+    today_price = resolve_today_price(current["price"], current["is_open"], intraday)
 
     if not trend_shown:
         # 종목마다 거의 동일한 문구가 반복되므로, 첫 종목 데이터로 한 번만 제목 아래에 채운다.
+        # dedupe_daily_closes()는 build_price_chart() 내부에서도 똑같이 호출되는 함수다 —
+        # 같은 today_price/intraday를 넣어 같은 결과를 얻어야, 여기서 세는 "최근 N일" 숫자와
+        # 아래에서 build_price_chart()가 실제로 그리는 점 개수가 항상 일치한다.
+        deduped_daily_closes = dedupe_daily_closes(daily_closes, today_price, intraday)
         trend_placeholder.markdown(
             f'<div style="font-size:1.1rem;color:gray;">'
-            f'{describe_price_trend(daily_closes, intraday)}</div>',
+            f'{describe_price_trend(deduped_daily_closes, intraday)}</div>',
             unsafe_allow_html=True,
         )
         trend_shown = True
@@ -131,11 +143,6 @@ for code in codes or []:
         unsafe_allow_html=True,
     )
 
-    # 분봉도 없고(intraday 비어있음) 장도 닫혀있으면(is_open=False), 지금 조회한 "현재가"는
-    # 장마감 후~다음 장 시작 전이라 필연적으로 daily_closes의 마지막 종가와 같은 값이다(네이버
-    # API가 장이 안 열려있으면 최근 종가를 그대로 돌려주기 때문). 그대로 넘기면 "어제 종가" 점과
-    # "현재가" 점이 같은 값으로 중복 표시되므로, 이 경우엔 None을 넘겨 별도 점을 추가하지 않는다.
-    today_price = current["price"] if (current["is_open"] or intraday) else None
     chart_buffer = build_price_chart(
         code, current["name"], daily_closes, today_price, intraday
     )

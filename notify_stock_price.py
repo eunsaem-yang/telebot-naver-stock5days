@@ -23,6 +23,8 @@ from stock_utils import (
     build_price_chart,
     describe_price_trend,
     format_rate_badge,
+    resolve_today_price,
+    dedupe_daily_closes,
     MANUAL_TRIGGER_KEYBOARD,
 )
 
@@ -63,9 +65,18 @@ def send_price_notification() -> None:
 
     # 추이 설명(describe_price_trend())은 종목마다 거의 같은 문구가 반복되므로, 대표로 첫
     # 종목의 데이터만 써서 헤더 문구 아래 한 번만 붙인다 (종목별 사진 캡션에는 넣지 않는다).
+    # next(iter(current_prices)): current_prices는 {종목코드: 조회결과} 딕셔너리인데, 딕셔너리
+    # 자체를 순회(iter)하면 키(종목코드)들이 나온다 — 그중 맨 처음 것 하나만 next()로 꺼낸다.
     first_code = next(iter(current_prices))
+    first_info = current_prices[first_code]
     first_daily_closes = price_history.get(first_code, [])
     first_intraday_minutes = fetch_naver_intraday_minutes(first_code)
+    # resolve_today_price()로 "오늘" 값을 정하고, 그 값을 기준으로 dedupe_daily_closes()가
+    # daily_closes에서 오늘 날짜를 걸러낸다 — 이렇게 해야 아래 describe_price_trend()가 세는
+    # "최근 N일" 숫자가, 같은 데이터로 build_price_chart()가 실제로 그리는 점 개수와 항상
+    # 일치한다(둘 다 같은 필터링을 거친 daily_closes를 보게 되므로).
+    first_today_price = resolve_today_price(first_info["price"], first_info["is_open"], first_intraday_minutes)
+    first_daily_closes = dedupe_daily_closes(first_daily_closes, first_today_price, first_intraday_minutes)
     telegram_message += f"\n\n{describe_price_trend(first_daily_closes, first_intraday_minutes)}"
 
     # reply_markup으로 수동 트리거 버튼을 매번 같이 보내, 텔레그램 클라이언트가 어떤 이유로든
@@ -84,13 +95,10 @@ def send_price_notification() -> None:
                   f"collect_daily_close.py가 아직 한 번도 실행되지 않았을 수 있습니다.")
 
         intraday_minutes = fetch_naver_intraday_minutes(code)
-        # 분봉도 없고(intraday_minutes 비어있음) 장도 닫혀있으면(is_open=False), 지금 조회한
-        # "현재가"는 장마감 후~다음 장 시작 전이라 필연적으로 daily_closes의 마지막 종가와
-        # 같은 값이다(네이버 API가 장이 안 열려있으면 최근 종가를 그대로 돌려주기 때문). 이걸
-        # 그대로 build_price_chart()에 넘기면 "어제 종가" 점과 "현재가" 점이 같은 값으로 중복
-        # 표시된다. 그래서 이 경우엔 None을 넘겨 별도의 "오늘" 점을 아예 추가하지 않는다.
-        # (장중인데 분봉 조회만 일시적으로 실패한 경우는 is_open=True라 현재가를 그대로 보여준다.)
-        today_price = info["price"] if (info["is_open"] or intraday_minutes) else None
+        # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(장마감 후~다음 장 시작 전) 지금
+        # 조회한 "현재가"는 daily_closes의 마지막 종가와 필연적으로 같은 값이라 None을 돌려받는다
+        # — build_price_chart()가 None을 받으면 "오늘" 점을 따로 안 그려서 중복 표시를 막는다.
+        today_price = resolve_today_price(info["price"], info["is_open"], intraday_minutes)
         chart_buffer = build_price_chart(code, info["name"], daily_closes, today_price, intraday_minutes)
         # send_telegram_photo()가 parse_mode="HTML"로 보내므로, 종목명을 <b> 태그로 감싸면
         # 굵게 표시된다. html.escape()로 종목명에 HTML 특수문자가 섞여 있어도 태그 구조가
