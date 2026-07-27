@@ -22,6 +22,7 @@ from stock_utils import (
     send_telegram_photo,
     build_price_chart,
     describe_price_trend,
+    format_rate_badge,
     MANUAL_TRIGGER_KEYBOARD,
 )
 
@@ -40,8 +41,9 @@ def send_price_notification() -> None:
     print("🚀 관심종목 현재가 조회 시작...")
 
     current_prices = {}  # code -> fetch_naver_current_price() 결과
-    # 메시지를 한 번에 다 만들지 않고, 종목을 순회하면서 문자열을 계속 이어 붙여(+=) 완성한다.
-    telegram_message = "📊 <b>내 관심종목 현재가</b>\n\n"
+    # 종목별 상세 정보(가격·등락 등)는 이제 사진 캡션에 담기므로, 텍스트 메시지는 헤더 문구만
+    # 보낸다. 아래 for문은 그래프 전송(2번) 단계에서 쓸 current_prices만 채운다.
+    telegram_message = "📊 <b>내 관심종목 현재가</b>"
 
     for code in watchlist_codes:
         info = fetch_naver_current_price(code)
@@ -50,25 +52,6 @@ def send_price_notification() -> None:
             continue
 
         current_prices[code] = info
-
-        # html.escape(): 종목명/코드에 <, >, & 같은 HTML 특수문자가 섞여 있으면 그대로 이스케이프
-        # 처리해, 위에서 parse_mode="HTML"로 보내는 메시지의 태그 구조가 깨지지 않게 한다.
-        name = html.escape(info["name"])
-        price = info["price"]
-        rate = info["rate"]
-        # 삼항 표현식: 장중이면 "현재가", 장마감 후면 "종가"라고 다르게 표시한다.
-        label = "현재가 (장중)" if info["is_open"] else "종가 (장마감 기준)"
-
-        # 등락률(rate)의 부호에 따라 표시할 이모지와 문구를 정한다.
-        if rate > 0:
-            sign, rate_str = "🔺", f"+{rate}%"
-        elif rate < 0:
-            sign, rate_str = "🔻", f"{rate}%"  # 자체적으로 마이너스가 붙어 나옴
-        else:
-            sign, rate_str = "▫️", "0.0%"
-
-        telegram_message += f"▪️ <b>{name}</b> ({html.escape(code)})\n"
-        telegram_message += f"  {label}: {price:,}원 ({sign} {rate_str})\n\n"
 
     if not current_prices:
         print("❌ 관심종목의 현재가를 하나도 가져오지 못했습니다. 네이버 API 상태를 확인해 주세요.")
@@ -94,7 +77,14 @@ def send_price_notification() -> None:
 
         intraday_minutes = fetch_naver_intraday_minutes(code)
         chart_buffer = build_price_chart(code, info["name"], daily_closes, info["price"], intraday_minutes)
-        caption = f"📈 {info['name']} ({code}) {describe_price_trend(daily_closes, intraday_minutes)}"
+        # send_telegram_photo()가 parse_mode="HTML"로 보내므로, 종목명을 <b> 태그로 감싸면
+        # 굵게 표시된다. html.escape()로 종목명에 HTML 특수문자가 섞여 있어도 태그 구조가
+        # 깨지지 않게 한다.
+        caption = (
+            f"📈 <b>{html.escape(info['name'])}</b> ({code}) "
+            f"{describe_price_trend(daily_closes, intraday_minutes)} "
+            f"({format_rate_badge(info['price'], info['rate'])})"
+        )
 
         if send_telegram_photo(chart_buffer, caption):
             print(f"🎉 [{code}] 추이 그래프를 텔레그램으로 전송했습니다!")

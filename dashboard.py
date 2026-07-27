@@ -32,7 +32,19 @@ from stock_utils import (
 # st.set_page_config(): 브라우저 탭 제목/아이콘 등 페이지 전체 설정. 스크립트에서 다른
 # st.* 호출보다 먼저 딱 한 번만 호출해야 한다.
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
-st.title("📈 관심종목 현재가 대시보드")  # 화면 맨 위 큰 제목.
+st.subheader("📈 관심종목 현재가 대시보드")  # 화면 맨 위 제목. st.title()(h1)보다 두 단계 작은 크기.
+
+# st.metric()은 API로 글자 크기를 조절할 수 없어서, CSS로 직접 오버라이드한다.
+# data-testid는 Streamlit이 각 위젯에 붙이는 고정 식별자(HTML 구조가 바뀌어도 잘 안 바뀜).
+st.markdown(
+    """
+    <style>
+    [data-testid="stMetricLabel"] { font-size: 0.7rem; }
+    [data-testid="stMetricValue"] { font-size: 1.4rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # st.cache_data: 이 함수의 반환값을 ttl(유효 시간) 동안 기억해뒀다가, 같은 인자로 다시 호출되면
 # 실제로 다시 실행하지 않고 기억해둔 값을 즉시 돌려준다. Streamlit은 상호작용마다 스크립트
@@ -87,14 +99,14 @@ for code in codes or []:
             st.warning(f"{name}({code}): 현재가 조회 실패 (저장된 과거 종가도 없음)")
             continue
         st.warning(f"{name}({code}): 현재가 조회 실패 — 저장된 과거 종가만 표시합니다")
-        st.subheader(f"{name} ({code})")
+        st.markdown(f"##### {name} ({code})")  # st.subheader(h3)보다 작은 h5.
         chart_buffer = build_price_chart(code, name, daily_closes)
         st.image(chart_buffer)
         continue
 
     intraday = _cached_intraday(code)
 
-    st.subheader(f"{current['name']} ({code})")  # 종목명(코드) 형태의 소제목.
+    st.markdown(f"##### {current['name']} ({code})")  # 종목명(코드) 형태의 소제목. st.subheader(h3)보다 작은 h5.
     # st.metric(): 라벨 + 큰 숫자(value) + 증감(delta)을 카드 형태로 보여주는 위젯.
     # delta 값이 양수/음수면 Streamlit이 자동으로 초록/빨강 화살표까지 붙여준다.
     st.metric(

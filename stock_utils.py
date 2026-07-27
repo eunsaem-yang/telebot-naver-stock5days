@@ -368,7 +368,8 @@ def send_telegram_photo(photo_buffer: io.BytesIO, caption: str) -> bool:
     # 아니라 build_price_chart()가 메모리 안에 만들어둔 io.BytesIO(바이트 버퍼)인데, requests는
     # 이런 파일과 비슷하게 동작하는 객체("file-like object")도 그대로 파일처럼 다룰 수 있다.
     files = {"photo": ("chart.png", photo_buffer, "image/png")}
-    data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption}
+    # parse_mode="HTML": 캡션 안에 <b>...</b> 같은 HTML 태그를 서식(굵게 등)으로 해석하게 한다.
+    data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
     try:
         response = requests.post(url, data=data, files=files, timeout=15)
         return response.status_code == 200
@@ -378,9 +379,9 @@ def send_telegram_photo(photo_buffer: io.BytesIO, caption: str) -> bool:
 
 
 def describe_price_trend(daily_closes: list, intraday_minutes: list, has_current: bool = True) -> str:
-    """그래프에 어떤 데이터가 담겼는지 설명하는 문구를 반환합니다. 그래프 제목과 텔레그램
-    캡션이 동일한 문구를 쓰도록 공용으로 뺐습니다. has_current=False는 현재가 조회 자체가
-    실패해 DB에 저장된 과거 종가만 표시하는 경우(대시보드 fallback)를 가리킵니다."""
+    """그래프에 어떤 데이터가 담겼는지 설명하는 문구를 반환합니다. 텔레그램 캡션과 대시보드가
+    동일한 문구를 쓰도록 공용으로 뺐습니다. has_current=False는 현재가 조회 자체가 실패해
+    DB에 저장된 과거 종가만 표시하는 경우(대시보드 fallback)를 가리킵니다."""
     if intraday_minutes:
         return f"최근 {len(daily_closes)}일 종가 + 오늘 분봉 추이"
     if not has_current:
@@ -388,6 +389,18 @@ def describe_price_trend(daily_closes: list, intraday_minutes: list, has_current
     if daily_closes:
         return f"최근 {len(daily_closes)}일 종가 + 현재가 추이"
     return "현재가 (종가 히스토리 누적 전)"
+
+
+def format_rate_badge(price: int, rate: float) -> str:
+    """가격과 등락률(%)을 "가격원 세모이모지 부호율%" 형태의 문자열로 변환합니다
+    (예: "254,000원 🔺 +1.2%", "254,000원 ▼ -0.5%"). 세모 이모지 바로 앞에 가격 숫자를
+    붙입니다. 텔레그램 텍스트 메시지와 사진 캡션이 동일한 표기를 쓰도록 공용으로 뺐습니다."""
+    prefix = f"{price:,}원"
+    if rate > 0:
+        return f"{prefix} 🔺 +{rate}%"
+    if rate < 0:
+        return f"{prefix} ▼ {rate}%"
+    return f"{prefix} ▫️ 0.0%"
 
 
 def _evenly_spaced(start: float, end: float, n: int) -> list:
@@ -407,7 +420,10 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     daily_closes는 [{"date": "YYYYMMDD", "close": 가격}, ...] (날짜 오름차순).
     intraday_minutes를 넘기면(오늘 분봉, 시간 오름차순) 오늘 구간을 분 단위 선으로 그리고,
     없으면 current_price 한 점만 표시합니다. current_price도 None이면(예: 대시보드에서 네이버
-    API 조회가 실패한 경우) "오늘" 지점 없이 daily_closes만으로 그립니다."""
+    API 조회가 실패한 경우) "오늘" 지점 없이 daily_closes만으로 그립니다 — 이 경우 daily_closes에
+    이미 오늘 종가가 들어있어도(장마감 후 collect_daily_close.py가 실행된 뒤라면) 그대로 표시되어
+    정보 손실이 없습니다. 반대로 분봉/현재가 조회에 성공하면, daily_closes에 오늘 날짜 종가가
+    섞여 있어도 제외하고 그립니다 — "오늘" 구간과 중복 표시되는 것을 막기 위해서입니다."""
     import matplotlib
     matplotlib.use("Agg")  # 화면 출력 없이 이미지 파일(버퍼)로만 저장
     import matplotlib.pyplot as plt
@@ -417,19 +433,28 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
     # 순서대로 탐색되어 설치된 첫 폰트가 사용된다.
     plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 
-    # daily_closes는 [{"date": "20260722", "close": 71000}, ...] 형태다.
-    # x축에 표시할 짧은 날짜 라벨("07/22")을 문자열 슬라이싱으로 만든다:
-    #   entry['date'][4:6] → "07"(5~6번째 글자, 월),  entry['date'][6:] → "22"(7번째 글자부터 끝, 일)
-    daily_labels = [f"{entry['date'][4:6]}/{entry['date'][6:]}" for entry in daily_closes]
-    daily_prices = [entry["close"] for entry in daily_closes]
-
     # "오늘" 구간에 그릴 값들을 상황별로 결정한다 (우선순위: 분봉 > 현재가 한 점 > 아무것도 없음).
     if intraday_minutes:
         today_prices = [m["price"] for m in intraday_minutes]
     elif current_price is not None:
         today_prices = [current_price]
     else:
-        today_prices = []  # 현재가 조회 실패: "오늘" 지점 없이 과거 종가만 그린다.
+        today_prices = []  # 분봉/현재가 조회 실패: "오늘" 지점 없이 과거 종가만 그린다.
+
+    if today_prices:
+        # 분봉/현재가를 성공적으로 불러와 "오늘" 구간을 따로 그릴 때는, daily_closes 안에
+        # 이미 오늘 날짜 종가가 섞여 있어도(장마감 후 collect_daily_close.py가 이미 실행돼
+        # DB에 오늘 종가가 저장된 경우) 제외한다 — 안 그러면 오늘 종가가 과거 종가 쪽 마지막
+        # 점과 "오늘" 구간 끝점에 중복으로 표시된다. 반대로 분봉/현재가 조회 자체가 실패하면
+        # (today_prices가 빈 리스트) DB에 저장된 오늘 종가가 있어도 그대로 남겨 정보 손실을 막는다.
+        today_str = datetime.now(KST).strftime("%Y%m%d")
+        daily_closes = [entry for entry in daily_closes if entry["date"] != today_str]
+
+    # daily_closes는 [{"date": "20260722", "close": 71000}, ...] 형태다.
+    # x축에 표시할 짧은 날짜 라벨("07/22")을 문자열 슬라이싱으로 만든다:
+    #   entry['date'][4:6] → "07"(5~6번째 글자, 월),  entry['date'][6:] → "22"(7번째 글자부터 끝, 일)
+    daily_labels = [f"{entry['date'][4:6]}/{entry['date'][6:]}" for entry in daily_closes]
+    daily_prices = [entry["close"] for entry in daily_closes]
 
     # 과거 종가 리스트 + 오늘 값 리스트를 이어붙여 하나의 선으로 그릴 전체 값 목록을 만든다.
     prices = daily_prices + today_prices
@@ -462,14 +487,14 @@ def build_price_chart(code: str, name: str, daily_closes: list, current_price: i
         # 숫자를 텍스트로 붙인다. f"{yi:,}"의 ":,"는 천단위마다 콤마를 넣는 서식 지정자다
         # (71000 → "71,000"). xytext=(0, 8)은 점에서 위로 8포인트 띄워서 라벨을 쓴다는 뜻이다.
         for xi, yi in zip(daily_x, daily_prices):
-            ax.annotate(f"{yi:,}", (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=9)
+            ax.annotate(f"{yi:,}", (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=13)
 
     # "오늘" 지점(현재가/분봉)이 있을 때만 마지막 지점을 강조 표시한다.
     if today_prices:
         # x[-1], prices[-1]: 리스트의 마지막(-1번째) 원소, 즉 그래프에서 가장 최근 값이다.
         ax.plot(x[-1], prices[-1], marker="o", color="#d62728")
         ax.annotate(f"{prices[-1]:,}", (x[-1], prices[-1]), textcoords="offset points",
-                    xytext=(0, 8), ha="center", fontsize=9, color="#d62728")
+                    xytext=(0, 8), ha="center", fontsize=13, color="#d62728")
 
     # x축 눈금: 과거 일자는 전부, 오늘 분봉은 정시(HH:00)만 골라 표시한다 (전부 표시하면 겹침).
     # list(daily_x)/list(daily_labels): 원본 리스트를 복사해서 새 리스트를 만든다 — 이후 append로
