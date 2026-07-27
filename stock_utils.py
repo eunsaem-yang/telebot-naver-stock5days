@@ -383,7 +383,7 @@ def describe_price_trend(daily_closes: list, intraday_minutes: list, has_current
     동일한 문구를 쓰도록 공용으로 뺐습니다. has_current=False는 현재가 조회 자체가 실패해
     DB에 저장된 과거 종가만 표시하는 경우(대시보드 fallback)를 가리킵니다."""
     if intraday_minutes:
-        return f"최근 {len(daily_closes)}일 종가 + 오늘 분봉 추이"
+        return f"최근 {len(daily_closes)}일 종가 + 현재가 추이"
     if not has_current:
         return f"최근 {len(daily_closes)}일 종가 (현재가 조회 실패)"
     if daily_closes:

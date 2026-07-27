@@ -131,7 +131,12 @@ for code in codes or []:
         unsafe_allow_html=True,
     )
 
+    # 분봉도 없고(intraday 비어있음) 장도 닫혀있으면(is_open=False), 지금 조회한 "현재가"는
+    # 장마감 후~다음 장 시작 전이라 필연적으로 daily_closes의 마지막 종가와 같은 값이다(네이버
+    # API가 장이 안 열려있으면 최근 종가를 그대로 돌려주기 때문). 그대로 넘기면 "어제 종가" 점과
+    # "현재가" 점이 같은 값으로 중복 표시되므로, 이 경우엔 None을 넘겨 별도 점을 추가하지 않는다.
+    today_price = current["price"] if (current["is_open"] or intraday) else None
     chart_buffer = build_price_chart(
-        code, current["name"], daily_closes, current["price"], intraday
+        code, current["name"], daily_closes, today_price, intraday
     )
     st.image(chart_buffer)  # build_price_chart()가 만든 PNG 바이트 버퍼를 그대로 화면에 그린다.

@@ -41,8 +41,9 @@ def send_price_notification() -> None:
     print("🚀 관심종목 현재가 조회 시작...")
 
     current_prices = {}  # code -> fetch_naver_current_price() 결과
-    # 종목별 상세 정보(가격·등락 등)는 이제 사진 캡션에 담기므로, 텍스트 메시지는 헤더 문구만
-    # 보낸다. 아래 for문은 그래프 전송(2번) 단계에서 쓸 current_prices만 채운다.
+    # 종목별 상세 정보(가격·등락 등)는 사진 캡션에 담기므로, 헤더 문구만 먼저 만들어둔다
+    # (추이 설명은 아래에서 대표 종목 데이터로 한 번만 덧붙인다). 아래 for문은 그래프 전송(2번)
+    # 단계에서 쓸 current_prices만 채운다.
     telegram_message = "📊 <b>내 관심종목 현재가</b>"
 
     for code in watchlist_codes:
@@ -57,15 +58,22 @@ def send_price_notification() -> None:
         print("❌ 관심종목의 현재가를 하나도 가져오지 못했습니다. 네이버 API 상태를 확인해 주세요.")
         return
 
+    # 2. collect_daily_close.py가 저장해 둔 최근 15거래일 종가를 읽어 그래프 생성 및 전송
+    price_history = load_price_history()
+
+    # 추이 설명(describe_price_trend())은 종목마다 거의 같은 문구가 반복되므로, 대표로 첫
+    # 종목의 데이터만 써서 헤더 문구 아래 한 번만 붙인다 (종목별 사진 캡션에는 넣지 않는다).
+    first_code = next(iter(current_prices))
+    first_daily_closes = price_history.get(first_code, [])
+    first_intraday_minutes = fetch_naver_intraday_minutes(first_code)
+    telegram_message += f"\n\n{describe_price_trend(first_daily_closes, first_intraday_minutes)}"
+
     # reply_markup으로 수동 트리거 버튼을 매번 같이 보내, 텔레그램 클라이언트가 어떤 이유로든
     # 버튼을 숨겨도 다음 알림에서 다시 노출되도록 한다.
     if send_telegram_message(telegram_message, reply_markup=MANUAL_TRIGGER_KEYBOARD):
         print("✅ 현재가 메시지를 텔레그램으로 전송했습니다!")
     else:
         print("❌ 현재가 메시지 전송에 실패했습니다.")
-
-    # 2. collect_daily_close.py가 저장해 둔 최근 15거래일 종가를 읽어 그래프 생성 및 전송
-    price_history = load_price_history()
 
     # current_prices.items(): {종목코드: 조회결과} 딕셔너리를 (code, info) 쌍으로 순회한다.
     for code, info in current_prices.items():
@@ -76,14 +84,21 @@ def send_price_notification() -> None:
                   f"collect_daily_close.py가 아직 한 번도 실행되지 않았을 수 있습니다.")
 
         intraday_minutes = fetch_naver_intraday_minutes(code)
-        chart_buffer = build_price_chart(code, info["name"], daily_closes, info["price"], intraday_minutes)
+        # 분봉도 없고(intraday_minutes 비어있음) 장도 닫혀있으면(is_open=False), 지금 조회한
+        # "현재가"는 장마감 후~다음 장 시작 전이라 필연적으로 daily_closes의 마지막 종가와
+        # 같은 값이다(네이버 API가 장이 안 열려있으면 최근 종가를 그대로 돌려주기 때문). 이걸
+        # 그대로 build_price_chart()에 넘기면 "어제 종가" 점과 "현재가" 점이 같은 값으로 중복
+        # 표시된다. 그래서 이 경우엔 None을 넘겨 별도의 "오늘" 점을 아예 추가하지 않는다.
+        # (장중인데 분봉 조회만 일시적으로 실패한 경우는 is_open=True라 현재가를 그대로 보여준다.)
+        today_price = info["price"] if (info["is_open"] or intraday_minutes) else None
+        chart_buffer = build_price_chart(code, info["name"], daily_closes, today_price, intraday_minutes)
         # send_telegram_photo()가 parse_mode="HTML"로 보내므로, 종목명을 <b> 태그로 감싸면
         # 굵게 표시된다. html.escape()로 종목명에 HTML 특수문자가 섞여 있어도 태그 구조가
-        # 깨지지 않게 한다.
+        # 깨지지 않게 한다. 텔레그램 캡션은 일반 텍스트라 HTML과 달리 공백이 줄어들지 않으므로,
+        # "    "(공백 4칸)를 그대로 써도 들여쓰기가 유지된다.
         caption = (
-            f"📈 <b>{html.escape(info['name'])}</b> ({code}) "
-            f"{describe_price_trend(daily_closes, intraday_minutes)} "
-            f"({format_rate_badge(info['price'], info['rate'])})"
+            f"📈 <b>{html.escape(info['name'])}</b> ({code})\n"
+            f"    {format_rate_badge(info['price'], info['rate'])}"
         )
 
         if send_telegram_photo(chart_buffer, caption):
