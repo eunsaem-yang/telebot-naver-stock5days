@@ -12,6 +12,7 @@ import os
 import io
 import json
 import re
+import time
 import requests
 import holidays
 from datetime import datetime
@@ -60,23 +61,31 @@ def is_trading_day(date: datetime = None) -> bool:
     return date.date() not in _KR_HOLIDAYS
 
 
-def read_watchlist(path: str = WATCHLIST_FILE) -> list:
-    """watchlist.csv를 읽어 종목코드 리스트를 반환합니다. 실패 시 None."""
+def _load_watchlist_df(path: str = WATCHLIST_FILE):
+    """watchlist.csv를 읽어 컬럼명을 정규화한 DataFrame을 반환하는 내부 헬퍼.
+    read_watchlist()/read_watchlist_names()가 각자 pd.read_csv()+컬럼 정규화를 중복
+    구현하던 것을 여기 하나로 모았다 (두 함수의 반환 타입·인터페이스는 그대로 유지)."""
     import pandas as pd
 
+    # pd.read_csv()는 CSV 파일을 읽어 표 형태의 자료구조인 DataFrame으로 돌려준다.
+    # dtype={"code": str}을 안 주면 pandas가 "005930"을 숫자로 착각해 앞자리 0을
+    # 없애버린다(5930) — 앞자리에 0이 있는 종목코드가 깨지지 않도록 문자열로 강제한다.
+    watchlist_df = pd.read_csv(path, dtype={"code": str})
+
+    # 컬럼명의 공백을 제거하고 소문자로 통일하여 'code' 컬럼을 찾습니다.
+    # (리스트 컴프리헨션: 모든 컬럼명 하나하나에 strip()+lower()를 적용해 새 리스트를 만든다)
+    watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
+    return watchlist_df
+
+
+def read_watchlist(path: str = WATCHLIST_FILE) -> list:
+    """watchlist.csv를 읽어 종목코드 리스트를 반환합니다. 실패 시 None."""
     if not os.path.exists(path):
         print(f"❌ '{path}' 파일이 존재하지 않습니다.")
         return None
 
     try:
-        # pd.read_csv()는 CSV 파일을 읽어 표 형태의 자료구조인 DataFrame으로 돌려준다.
-        # dtype={"code": str}을 안 주면 pandas가 "005930"을 숫자로 착각해 앞자리 0을
-        # 없애버린다(5930) — 앞자리에 0이 있는 종목코드가 깨지지 않도록 문자열로 강제한다.
-        watchlist_df = pd.read_csv(path, dtype={"code": str})
-
-        # 컬럼명의 공백을 제거하고 소문자로 통일하여 'code' 컬럼을 찾습니다.
-        # (리스트 컴프리헨션: 모든 컬럼명 하나하나에 strip()+lower()를 적용해 새 리스트를 만든다)
-        watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
+        watchlist_df = _load_watchlist_df(path)
 
         if "code" not in watchlist_df.columns:
             print("❌ CSV 파일에 'code' 컬럼이 존재하지 않습니다.")
@@ -96,11 +105,8 @@ def read_watchlist_names(path: str = WATCHLIST_FILE) -> dict:
     """watchlist.csv에 name 컬럼이 있으면 {code: name} 매핑을 반환합니다 (없으면 빈 dict).
     평소엔 네이버 API 응답의 종목명을 쓰지만, 그 조회 자체가 실패했을 때(대시보드 폴백)
     종목코드 대신 이름을 보여주기 위한 용도."""
-    import pandas as pd
-
     try:
-        watchlist_df = pd.read_csv(path, dtype={"code": str})
-        watchlist_df.columns = [col.strip().lower() for col in watchlist_df.columns]
+        watchlist_df = _load_watchlist_df(path)
         if "name" not in watchlist_df.columns:
             return {}
         # zip()은 두 리스트(code 열, name 열)를 같은 순서끼리 짝지어 (code, name) 쌍들을 만들고,
@@ -203,41 +209,54 @@ def update_price_history(code: str, date_str: str, close_price: int,
         print(f"❌ [{code}] Turso DB에 종가 저장 실패: {e}")
 
 
-def fetch_naver_current_price(code: str) -> dict:
-    """네이버 금융 비공식 API로 종목의 현재가(장중) 또는 최근 종가(장마감)를 조회합니다."""
-    url = f"https://m.stock.naver.com/api/stock/{code}/basic"
-    try:
-        # requests.get()으로 이 주소에 HTTP GET 요청을 보낸다. User-Agent 헤더가 없으면 일부
-        # 서버가 "브라우저가 아닌 요청"으로 판단해 응답을 거부하기도 해서 브라우저인 척 흉내낸다.
-        # timeout=3: 3초 안에 응답이 없으면 기다리지 않고 바로 예외를 발생시킨다(무한 대기 방지).
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if response.status_code != 200:
-            print(f"❌ [{code}] 네이버 현재가 조회 실패 (응답 코드: {response.status_code})")
-            return None
+def fetch_naver_current_price(code: str, retries: int = 2) -> dict:
+    """네이버 금융 비공식 API로 종목의 현재가(장중) 또는 최근 종가(장마감)를 조회합니다.
 
-        # JSON(JavaScript Object Notation)은 API가 데이터를 주고받을 때 가장 흔히 쓰는 텍스트
-        # 형식이다. 생김새가 파이썬의 딕셔너리·리스트와 거의 그대로 대응된다:
-        #   {"stockName": "삼성전자", "closePrice": "71,000", "marketStatus": "OPEN"}
-        # 위 문자열이 바로 JSON이고, response.json()은 이 문자열을 실제 파이썬 딕셔너리로
-        # 변환해준다 — 그 뒤로는 data["stockName"]처럼 평범한 딕셔너리 다루듯 쓸 수 있다.
-        data = response.json()
-        # data.get("closePrice", "0"): "closePrice" 키가 없으면 기본값 "0"을 쓴다(에러 방지).
-        # 네이버 응답은 가격에 천단위 콤마가 찍혀 있어서("70,000") 숫자로 바꾸기 전에 지운다.
-        price_str = data.get("closePrice", "0").replace(",", "")
-        return {
-            "code": code,
-            "name": data.get("stockName", "알 수 없음"),
-            # 삼항 표현식(조건부 표현식): "조건이 참이면 A, 아니면 B"를 한 줄로 쓴 것.
-            # price_str.isdigit()은 문자열이 숫자로만 이루어졌는지 확인 — 혹시 이상한 값이
-            # 와도 int() 변환 중 프로그램이 멈추지 않고 0으로 처리하고 넘어가게 한다.
-            "price": int(price_str) if price_str.isdigit() else 0,
-            # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
-            "rate": float(data.get("fluctuationsRatio", "0") or "0"),
-            "is_open": data.get("marketStatus") == "OPEN",
-        }
-    except Exception as e:
-        print(f"❌ [{code}] 네이버 현재가 조회 중 오류 발생: {e}")
-        return None
+    순간적인 네트워크 오류에 대비해 최대 retries회까지 재시도합니다. 특히
+    collect_daily_close.py가 이 함수의 실패를 그대로 "그날 종가 결측"으로 받아들여
+    Turso 히스토리에 되돌릴 수 없는 구멍을 남기기 때문에, 최소한의 재시도로 그 위험을 줄인다."""
+    url = f"https://m.stock.naver.com/api/stock/{code}/basic"
+    # 왜 재시도가 필요한가: 이 함수는 notify_stock_price.py(현재가 알림)와 collect_daily_close.py
+    # (종가 기록) 양쪽에서 쓰인다. notify 쪽은 실패해도 다음 알림 때 다시 시도되지만, collect 쪽은
+    # 하루에 한 번만 실행되므로 여기서 실패하면 그날 종가는 영원히 기록되지 않는다(하루 지나면
+    # 재조회할 방법이 없음). 순간적인 네트워크 지연/오류로 이런 영구 결측이 생기는 걸 막기 위해
+    # 최소한의 재시도(기본 2회)를 넣었다.
+    for attempt in range(1, retries + 1):
+        try:
+            # requests.get()으로 이 주소에 HTTP GET 요청을 보낸다. User-Agent 헤더가 없으면 일부
+            # 서버가 "브라우저가 아닌 요청"으로 판단해 응답을 거부하기도 해서 브라우저인 척 흉내낸다.
+            # timeout=3: 3초 안에 응답이 없으면 기다리지 않고 바로 예외를 발생시킨다(무한 대기 방지).
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+            if response.status_code != 200:
+                print(f"❌ [{code}] 네이버 현재가 조회 실패 (응답 코드: {response.status_code}, {attempt}/{retries}번째 시도)")
+            else:
+                # JSON(JavaScript Object Notation)은 API가 데이터를 주고받을 때 가장 흔히 쓰는 텍스트
+                # 형식이다. 생김새가 파이썬의 딕셔너리·리스트와 거의 그대로 대응된다:
+                #   {"stockName": "삼성전자", "closePrice": "71,000", "marketStatus": "OPEN"}
+                # 위 문자열이 바로 JSON이고, response.json()은 이 문자열을 실제 파이썬 딕셔너리로
+                # 변환해준다 — 그 뒤로는 data["stockName"]처럼 평범한 딕셔너리 다루듯 쓸 수 있다.
+                data = response.json()
+                # data.get("closePrice", "0"): "closePrice" 키가 없으면 기본값 "0"을 쓴다(에러 방지).
+                # 네이버 응답은 가격에 천단위 콤마가 찍혀 있어서("70,000") 숫자로 바꾸기 전에 지운다.
+                price_str = data.get("closePrice", "0").replace(",", "")
+                return {
+                    "code": code,
+                    "name": data.get("stockName", "알 수 없음"),
+                    # 삼항 표현식(조건부 표현식): "조건이 참이면 A, 아니면 B"를 한 줄로 쓴 것.
+                    # price_str.isdigit()은 문자열이 숫자로만 이루어졌는지 확인 — 혹시 이상한 값이
+                    # 와도 int() 변환 중 프로그램이 멈추지 않고 0으로 처리하고 넘어가게 한다.
+                    "price": int(price_str) if price_str.isdigit() else 0,
+                    # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
+                    "rate": float(data.get("fluctuationsRatio", "0") or "0"),
+                    "is_open": data.get("marketStatus") == "OPEN",
+                }
+        except Exception as e:
+            print(f"❌ [{code}] 네이버 현재가 조회 중 오류 발생: {e} ({attempt}/{retries}번째 시도)")
+
+        if attempt < retries:
+            time.sleep(1)  # 순간적인 오류일 수 있으니 짧게 대기 후 재시도
+
+    return None
 
 
 def fetch_naver_intraday_minutes(code: str, date_str: str = None) -> list:

@@ -34,24 +34,47 @@ from stock_utils import (
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
 st.title("📈 관심종목 현재가 대시보드")  # 화면 맨 위 큰 제목.
 
+# st.cache_data: 이 함수의 반환값을 ttl(유효 시간) 동안 기억해뒀다가, 같은 인자로 다시 호출되면
+# 실제로 다시 실행하지 않고 기억해둔 값을 즉시 돌려준다. Streamlit은 상호작용마다 스크립트
+# 전체를 처음부터 다시 실행하는데, 캐싱이 없으면 그때마다 네이버 API·Turso DB를 매번 다시
+# 호출하게 된다 — 현재가/분봉은 자주 바뀌니 짧게(1분), DB 히스토리는 하루 1회만 바뀌니
+# 조금 더 길게(5분) 기억해둔다.
+@st.cache_data(ttl="1m")
+def _cached_current_price(code):
+    return fetch_naver_current_price(code)
+
+
+@st.cache_data(ttl="1m")
+def _cached_intraday(code):
+    return fetch_naver_intraday_minutes(code)
+
+
+@st.cache_data(ttl="5m")
+def _cached_history():
+    return load_price_history()
+
+
 # st.button(): 버튼을 화면에 그리고, "이번 실행에서 방금 눌렸는지"를 True/False로 돌려준다.
 # 중요한 건 Streamlit의 실행 모델이다 — 이 파일은 한 번 실행되고 끝나는 게 아니라, 페이지를
 # 새로고침하거나 버튼을 누르는 등 뭔가와 상호작용할 때마다 맨 위(import문)부터 이 파일 전체가
-# 다시 통째로 실행된다. 즉 아래의 "종목 조회 → 그래프 생성" 코드도 버튼을 누를 때마다 매번
-# 새로 실행되어 최신 데이터를 다시 가져온다. st.rerun()은 "지금 즉시 이 스크립트를 처음부터
-# 다시 실행해줘"라고 명시적으로 요청하는 것이다(안 불러도 상호작용 자체가 재실행을 유발하지만,
-# 버튼을 누른 즉시 화면을 깔끔하게 다시 그리기 위해 명시적으로 호출했다).
+# 다시 통째로 실행된다. st.rerun()은 "지금 즉시 이 스크립트를 처음부터 다시 실행해줘"라고
+# 명시적으로 요청하는 것이다. 다만 캐싱을 넣은 뒤로는 재실행만으로는 ttl이 지나기 전까지
+# 기억해둔 값을 그대로 쓰게 되므로, 버튼을 눌렀을 때만큼은 "진짜 최신 값"을 보여주기 위해
+# .clear()로 캐시를 직접 비운 뒤 재실행한다.
 if st.button("🔄 새로고침"):
+    _cached_current_price.clear()
+    _cached_intraday.clear()
+    _cached_history.clear()
     st.rerun()
 
 codes = read_watchlist()
-history = load_price_history()
+history = _cached_history()
 watchlist_names = read_watchlist_names()
 
 # codes or []: read_watchlist()가 실패해서 None을 반환해도, None을 순회하려다 에러가 나는 대신
 # 빈 리스트로 대체해 그냥 "표시할 종목이 없다"는 상태로 조용히 넘어간다.
 for code in codes or []:
-    current = fetch_naver_current_price(code)
+    current = _cached_current_price(code)
     daily_closes = history.get(code, [])
 
     if current is None:
@@ -69,7 +92,7 @@ for code in codes or []:
         st.image(chart_buffer)
         continue
 
-    intraday = fetch_naver_intraday_minutes(code)
+    intraday = _cached_intraday(code)
 
     st.subheader(f"{current['name']} ({code})")  # 종목명(코드) 형태의 소제목.
     # st.metric(): 라벨 + 큰 숫자(value) + 증감(delta)을 카드 형태로 보여주는 위젯.
