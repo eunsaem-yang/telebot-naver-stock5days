@@ -34,6 +34,11 @@ from stock_utils import (
 st.set_page_config(page_title="관심종목 대시보드", page_icon="📈")
 st.subheader("관심종목 현재가 대시보드")  # 화면 맨 위 제목. st.title()(h1)보다 두 단계 작은 크기.
 
+# st.empty(): 지금은 빈 자리만 잡아두고, 나중에(종목 루프에서 첫 종목 데이터를 확인한 뒤)
+# .markdown()으로 내용을 채워 넣을 수 있는 자리표시자. 종목마다 반복되던 추이 설명 문구를
+# 제목 바로 아래에 한 번만 표시하기 위해 쓴다.
+trend_placeholder = st.empty()
+
 # st.cache_data: 이 함수의 반환값을 ttl(유효 시간) 동안 기억해뒀다가, 같은 인자로 다시 호출되면
 # 실제로 다시 실행하지 않고 기억해둔 값을 즉시 돌려준다. Streamlit은 상호작용마다 스크립트
 # 전체를 처음부터 다시 실행하는데, 캐싱이 없으면 그때마다 네이버 API·Turso DB를 매번 다시
@@ -71,6 +76,8 @@ codes = read_watchlist()
 history = _cached_history()
 watchlist_names = read_watchlist_names()
 
+trend_shown = False  # 추이 설명 문구를 이미 한 번 표시했는지 (첫 성공한 종목에서만 채운다).
+
 # codes or []: read_watchlist()가 실패해서 None을 반환해도, None을 순회하려다 에러가 나는 대신
 # 빈 리스트로 대체해 그냥 "표시할 종목이 없다"는 상태로 조용히 넘어간다.
 for code in codes or []:
@@ -94,6 +101,15 @@ for code in codes or []:
 
     intraday = _cached_intraday(code)
 
+    if not trend_shown:
+        # 종목마다 거의 동일한 문구가 반복되므로, 첫 종목 데이터로 한 번만 제목 아래에 채운다.
+        trend_placeholder.markdown(
+            f'<div style="font-size:0.9rem;color:gray;">'
+            f'{describe_price_trend(daily_closes, intraday)}</div>',
+            unsafe_allow_html=True,
+        )
+        trend_shown = True
+
     st.markdown(f"##### 📈 {current['name']} ({code})")  # 종목명(코드) 형태의 소제목. st.subheader(h3)보다 작은 h5.
 
     # st.metric()은 등락(delta)을 항상 값 아래 별도 줄에만 표시할 수 있어서, "원" 바로 옆에
@@ -107,7 +123,6 @@ for code in codes or []:
         delta_arrow, delta_color = "▫", "#888888"
     st.markdown(
         f"""
-        <div style="font-size:0.7rem;color:gray;">{describe_price_trend(daily_closes, intraday)}</div>
         <div style="font-size:1.4rem;font-weight:600;">
             {current['price']:,}원
             <span style="color:{delta_color};font-size:1rem;">{delta_arrow} {rate}%</span>
