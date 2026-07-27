@@ -66,16 +66,11 @@ def _cached_history():
 # 명시적으로 요청하는 것이다. 다만 캐싱을 넣은 뒤로는 재실행만으로는 ttl이 지나기 전까지
 # 기억해둔 값을 그대로 쓰게 되므로, 버튼을 눌렀을 때만큼은 "진짜 최신 값"을 보여주기 위해
 # .clear()로 캐시를 직접 비운 뒤 재실행한다.
-# st.columns([5, 1]): 가로 폭을 5:1 비율의 두 칸으로 나눈다. 첫 칸은 비워두고 버튼을 좁은
-# 두 번째 칸에 넣으면, 버튼이 그 칸 안에 꽉 차게 그려지면서 결과적으로 화면 오른쪽 끝으로
-# 밀려나 보인다.
-_, button_col = st.columns([5, 1])
-with button_col:
-    if st.button("🔄 새로고침"):
-        _cached_current_price.clear()
-        _cached_intraday.clear()
-        _cached_history.clear()
-        st.rerun()
+if st.button("🔄 새로고침"):
+    _cached_current_price.clear()
+    _cached_intraday.clear()
+    _cached_history.clear()
+    st.rerun()
 
 codes = read_watchlist()
 history = _cached_history()
