@@ -97,7 +97,7 @@ for code in codes or []:
             continue
         st.warning(f"{name}({code}): 현재가 조회 실패 — 저장된 과거 종가만 표시합니다")
         st.markdown(f"##### 📈 {name} ({code})")  # st.subheader(h3)보다 작은 h5.
-        chart_buffer = build_price_chart(code, name, daily_closes)
+        chart_buffer = build_price_chart(daily_closes)
         st.image(chart_buffer)
         continue
 
@@ -105,9 +105,11 @@ for code in codes or []:
     # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(장마감 후~다음 장 시작 전) 지금
     # 조회한 "현재가"는 daily_closes의 마지막 종가와 필연적으로 같은 값이라 None을 돌려받는다
     # — build_price_chart()가 None을 받으면 "오늘" 점을 따로 안 그려서 중복 표시를 막는다.
+    # daily_closes도 같이 넘기는 이유: 히스토리가 비어 있으면 중복될 종가 자체가 없으므로
+    # 현재가를 살려둬야 한다(안 그러면 그릴 점이 없어 빈 그래프가 된다).
     # 이 today_price는 아래 trend_placeholder(추이 문구)와 맨 아래 build_price_chart() 호출
     # 양쪽에서 재사용한다 — 매번 새로 계산하지 않고 한 번만 계산해서 쓴다.
-    today_price = resolve_today_price(current["price"], current["is_open"], intraday)
+    today_price = resolve_today_price(current["price"], current["is_open"], intraday, daily_closes)
 
     if not trend_shown:
         # 종목마다 거의 동일한 문구가 반복되므로, 첫 종목 데이터로 한 번만 제목 아래에 채운다.
@@ -143,7 +145,5 @@ for code in codes or []:
         unsafe_allow_html=True,
     )
 
-    chart_buffer = build_price_chart(
-        code, current["name"], daily_closes, today_price, intraday
-    )
+    chart_buffer = build_price_chart(daily_closes, today_price, intraday)
     st.image(chart_buffer)  # build_price_chart()가 만든 PNG 바이트 버퍼를 그대로 화면에 그린다.

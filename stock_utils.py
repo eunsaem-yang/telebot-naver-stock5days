@@ -241,7 +241,10 @@ def fetch_naver_current_price(code: str, retries: int = 2) -> dict:
 
     순간적인 네트워크 오류에 대비해 최대 retries회까지 재시도합니다. 특히
     collect_daily_close.py가 이 함수의 실패를 그대로 "그날 종가 결측"으로 받아들여
-    Turso 히스토리에 되돌릴 수 없는 구멍을 남기기 때문에, 최소한의 재시도로 그 위험을 줄인다."""
+    Turso 히스토리에 되돌릴 수 없는 구멍을 남기기 때문에, 최소한의 재시도로 그 위험을 줄인다.
+
+    조회 자체가 실패했을 때뿐 아니라, 응답은 왔지만 가격을 숫자로 읽지 못했을 때(0원)도
+    0이 담긴 dict 대신 None을 반환합니다 — 호출부가 "실패"로 명확히 구분할 수 있게."""
     url = f"https://m.stock.naver.com/api/stock/{code}/basic"
     # 왜 재시도가 필요한가: 이 함수는 notify_stock_price.py(현재가 알림)와 collect_daily_close.py
     # (종가 기록) 양쪽에서 쓰인다. notify 쪽은 실패해도 다음 알림 때 다시 시도되지만, collect 쪽은
@@ -266,17 +269,26 @@ def fetch_naver_current_price(code: str, retries: int = 2) -> dict:
                 # data.get("closePrice", "0"): "closePrice" 키가 없으면 기본값 "0"을 쓴다(에러 방지).
                 # 네이버 응답은 가격에 천단위 콤마가 찍혀 있어서("70,000") 숫자로 바꾸기 전에 지운다.
                 price_str = data.get("closePrice", "0").replace(",", "")
-                return {
-                    "code": code,
-                    "name": data.get("stockName", "알 수 없음"),
-                    # 삼항 표현식(조건부 표현식): "조건이 참이면 A, 아니면 B"를 한 줄로 쓴 것.
-                    # price_str.isdigit()은 문자열이 숫자로만 이루어졌는지 확인 — 혹시 이상한 값이
-                    # 와도 int() 변환 중 프로그램이 멈추지 않고 0으로 처리하고 넘어가게 한다.
-                    "price": int(price_str) if price_str.isdigit() else 0,
-                    # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
-                    "rate": float(data.get("fluctuationsRatio", "0") or "0"),
-                    "is_open": data.get("marketStatus") == "OPEN",
-                }
+                # 삼항 표현식(조건부 표현식): "조건이 참이면 A, 아니면 B"를 한 줄로 쓴 것.
+                # price_str.isdigit()은 문자열이 숫자로만 이루어졌는지 확인 — 혹시 이상한 값이
+                # 와도 int() 변환 중 프로그램이 멈추지 않고 0으로 처리하고 넘어가게 한다.
+                price = int(price_str) if price_str.isdigit() else 0
+                # 0원짜리 결과는 절대 그대로 돌려주지 않는다. 파싱에 실패했을 뿐인데 값이 있는 것처럼
+                # 넘기면 텔레그램·대시보드에 "0원"이라는 멀쩡해 보이는 가격이 표시되고, 그 값이
+                # Turso 히스토리에까지 저장되면 그래프와 전일 대비 계산이 통째로 깨진다.
+                # 그래서 "조회 실패"와 똑같이 취급해 (재시도 후에도 안 되면) None을 반환하게 만든다.
+                if price <= 0:
+                    print(f"❌ [{code}] 가격을 숫자로 읽지 못했습니다 "
+                          f"(closePrice: {data.get('closePrice')!r}, {attempt}/{retries}번째 시도)")
+                else:
+                    return {
+                        "code": code,
+                        "name": data.get("stockName", "알 수 없음"),
+                        "price": price,
+                        # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
+                        "rate": float(data.get("fluctuationsRatio", "0") or "0"),
+                        "is_open": data.get("marketStatus") == "OPEN",
+                    }
         except Exception as e:
             print(f"❌ [{code}] 네이버 현재가 조회 중 오류 발생: {e} ({attempt}/{retries}번째 시도)")
 
@@ -407,9 +419,19 @@ def send_telegram_photo(photo_buffer: io.BytesIO, caption: str) -> bool:
 
 def describe_price_trend(daily_closes: list, intraday_minutes: list) -> str:
     """그래프에 어떤 데이터가 담겼는지 설명하는 문구를 반환합니다. 텔레그램 캡션과 대시보드가
-    동일한 문구를 쓰도록 공용으로 뺐습니다."""
-    if intraday_minutes or daily_closes:
+    동일한 문구를 쓰도록 공용으로 뺐습니다. "최근 N일"이라고 말하려면 N을 세어줄 종가 히스토리가
+    반드시 있어야 하므로 daily_closes를 먼저 확인합니다."""
+    # daily_closes(과거 종가)가 있어야만 "최근 N일"이라고 말할 수 있다. 분봉(intraday_minutes)을
+    # 먼저 보면, 히스토리가 하나도 없는 상태에서 장중에 실행됐을 때 len(daily_closes)가 0이라
+    # "최근 0일 종가 + 현재가 추이"라는 이상한 문구가 나온다.
+    if daily_closes:
         return f"최근 {len(daily_closes)}일 종가 + 현재가 추이"
+    # 여기까지 왔다면 종가 히스토리가 아직 없는 상태다(새로 추가한 종목이거나
+    # collect_daily_close.py가 한 번도 실행되지 않은 최초 실행). 분봉이라도 있으면 오늘 하루치
+    # 추이는 그려지므로 그렇게 안내한다.
+    if intraday_minutes:
+        return "오늘 현재가 추이 (종가 히스토리 누적 전)"
+    # 히스토리도 분봉도 없으면 현재가 한 점만 찍힌다.
     return "현재가 (종가 히스토리 누적 전)"
 
 
@@ -425,17 +447,24 @@ def format_rate_badge(price: int, rate: float) -> str:
     return f"{prefix} ▫️ 0.0%"
 
 
-def resolve_today_price(price: int, is_open: bool, intraday_minutes: list) -> int:
+def resolve_today_price(price: int, is_open: bool, intraday_minutes: list,
+                        daily_closes: list) -> int:
     """분봉/현재가 조회 결과로 build_price_chart()에 넘길 "오늘" 가격을 결정합니다. 장이
     닫혀있고(is_open=False) 분봉도 없으면(장마감 후~다음 장 시작 전) 지금 조회한 가격은
     DB의 마지막 종가와 같은 값이 필연적이므로 None을 돌려줘, "오늘" 점을 따로 안 그리게
-    합니다. notify_stock_price.py/dashboard.py가 공유합니다."""
+    합니다. 단 daily_closes(과거 종가)가 하나도 없으면 비교할 대상 자체가 없으므로 이 예외는
+    적용하지 않고 현재가를 그대로 살립니다. notify_stock_price.py/dashboard.py가 공유합니다."""
     # 삼항 표현식(조건부 표현식): "조건이 참이면 price, 거짓이면 None"을 한 줄로 쓴 것.
     # is_open이 True(장중)면 무조건 살아있는 값이라 그대로 쓰고, is_open이 False라도
     # intraday_minutes가 비어있지 않으면(장마감 직후라 분봉은 남아있는 경우) 마찬가지로 살려둔다.
-    # 둘 다 아니면(장마감 후~다음 장 시작 전) None을 돌려준다. 빈 리스트([])는 파이썬에서
-    # False로 취급되므로 intraday_minutes만 써도 "비어있지 않은지" 확인이 된다.
-    return price if (is_open or intraday_minutes) else None
+    # 세 번째 조건(not daily_closes)은 "지금 가격은 마지막 종가와 중복이라 뺀다"는 위 근거가
+    # 언제 성립하는지를 따진 것이다 — 비교할 과거 종가가 하나도 없으면 중복될 값 자체가 없으므로
+    # 그 근거가 성립하지 않는다. 이때 현재가는 그 종목의 유일한 데이터이므로 반드시 살려야 하고,
+    # 버리면 그릴 점이 하나도 없어 축과 격자만 있는 빈 그래프가 만들어진다. 새로 추가한 종목이나
+    # collect_daily_close.py가 아직 한 번도 실행되지 않은 최초 실행에서 이 상황이 생긴다.
+    # 위 셋 다 아니면(장마감 후~다음 장 시작 전, 히스토리는 있음) None을 돌려준다. 빈 리스트([])는
+    # 파이썬에서 False로 취급되므로 intraday_minutes/daily_closes만 써도 "비어있는지" 확인이 된다.
+    return price if (is_open or intraday_minutes or not daily_closes) else None
 
 
 def dedupe_daily_closes(daily_closes: list, today_price: int, intraday_minutes: list) -> list:
@@ -467,8 +496,8 @@ def _evenly_spaced(start: float, end: float, n: int) -> list:
     return [start + step * i for i in range(n)]
 
 
-def build_price_chart(code: str, name: str, daily_closes: list, current_price: int = None,
-                       intraday_minutes: list = None) -> io.BytesIO:
+def build_price_chart(daily_closes: list, current_price: int = None,
+                      intraday_minutes: list = None) -> io.BytesIO:
     """종목별 최근 N일 종가 + 오늘 추이를 선 그래프로 그려 PNG 이미지 버퍼로 반환합니다.
     daily_closes는 [{"date": "YYYYMMDD", "close": 가격}, ...] (날짜 오름차순).
     intraday_minutes를 넘기면(오늘 분봉, 시간 오름차순) 오늘 구간을 분 단위 선으로 그리고,

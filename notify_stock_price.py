@@ -11,6 +11,7 @@ send_price_notification()으로 로직을 감싸 둔 이유는 check_manual_trig
 직접 실행했을 때의 동작(하루 3회 자동 스케줄)은 이전과 동일하다.
 """
 import html
+import sys
 
 from stock_utils import (
     is_trading_day,
@@ -29,15 +30,19 @@ from stock_utils import (
 )
 
 
-def send_price_notification() -> None:
-    """관심종목 현재가 텍스트 메시지와 종목별 추이 그래프를 텔레그램으로 전송합니다."""
+def send_price_notification() -> bool:
+    """관심종목 현재가 텍스트 메시지와 종목별 추이 그래프를 텔레그램으로 전송합니다.
+
+    관심종목을 하나라도 처리했으면(휴장일이라 보낼 게 없는 경우 포함) True, 아무것도 하지
+    못했으면 False를 반환합니다.
+    """
     if not is_trading_day():
         print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 알림을 건너뜁니다.")
-        return
+        return True  # 휴장일은 실패가 아니라 보낼 게 없는 정상 종료다.
 
     watchlist_codes = read_watchlist()
     if watchlist_codes is None:
-        return
+        return False
 
     # 1. 네이버 API로 현재가 조회 후 텔레그램 텍스트 메시지 전송
     print("🚀 관심종목 현재가 조회 시작...")
@@ -58,10 +63,15 @@ def send_price_notification() -> None:
 
     if not current_prices:
         print("❌ 관심종목의 현재가를 하나도 가져오지 못했습니다. 네이버 API 상태를 확인해 주세요.")
-        return
+        return False
 
     # 2. collect_daily_close.py가 저장해 둔 최근 15거래일 종가를 읽어 그래프 생성 및 전송
     price_history = load_price_history()
+
+    # 종목별 오늘 분봉을 미리 한 번씩만 조회해 딕셔너리에 담아둔다. 아래 헤더 문구(대표 종목)와
+    # 그래프 루프가 같은 종목의 분봉을 각각 조회하면 같은 API를 두 번 부르게 되고, 조회 시각이
+    # 달라 헤더가 세는 일수와 그래프의 점 개수가 어긋날 수 있다.
+    intraday_by_code = {code: fetch_naver_intraday_minutes(code) for code in current_prices}
 
     # 추이 설명(describe_price_trend())은 종목마다 거의 같은 문구가 반복되므로, 대표로 첫
     # 종목의 데이터만 써서 헤더 문구 아래 한 번만 붙인다 (종목별 사진 캡션에는 넣지 않는다).
@@ -70,12 +80,13 @@ def send_price_notification() -> None:
     first_code = next(iter(current_prices))
     first_info = current_prices[first_code]
     first_daily_closes = price_history.get(first_code, [])
-    first_intraday_minutes = fetch_naver_intraday_minutes(first_code)
+    first_intraday_minutes = intraday_by_code[first_code]
     # resolve_today_price()로 "오늘" 값을 정하고, 그 값을 기준으로 dedupe_daily_closes()가
     # daily_closes에서 오늘 날짜를 걸러낸다 — 이렇게 해야 아래 describe_price_trend()가 세는
     # "최근 N일" 숫자가, 같은 데이터로 build_price_chart()가 실제로 그리는 점 개수와 항상
     # 일치한다(둘 다 같은 필터링을 거친 daily_closes를 보게 되므로).
-    first_today_price = resolve_today_price(first_info["price"], first_info["is_open"], first_intraday_minutes)
+    first_today_price = resolve_today_price(first_info["price"], first_info["is_open"],
+                                            first_intraday_minutes, first_daily_closes)
     first_daily_closes = dedupe_daily_closes(first_daily_closes, first_today_price, first_intraday_minutes)
     telegram_message += f"\n\n{describe_price_trend(first_daily_closes, first_intraday_minutes)}"
 
@@ -94,12 +105,14 @@ def send_price_notification() -> None:
             print(f"⚠️ [{code}] 저장된 종가 히스토리가 없어 현재가만으로 그래프를 그립니다. "
                   f"collect_daily_close.py가 아직 한 번도 실행되지 않았을 수 있습니다.")
 
-        intraday_minutes = fetch_naver_intraday_minutes(code)
+        intraday_minutes = intraday_by_code[code]
         # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(장마감 후~다음 장 시작 전) 지금
         # 조회한 "현재가"는 daily_closes의 마지막 종가와 필연적으로 같은 값이라 None을 돌려받는다
         # — build_price_chart()가 None을 받으면 "오늘" 점을 따로 안 그려서 중복 표시를 막는다.
-        today_price = resolve_today_price(info["price"], info["is_open"], intraday_minutes)
-        chart_buffer = build_price_chart(code, info["name"], daily_closes, today_price, intraday_minutes)
+        # daily_closes도 같이 넘기는 이유: 히스토리가 비어 있으면 중복될 종가 자체가 없으므로
+        # 현재가를 살려둬야 한다(안 그러면 그릴 점이 없어 빈 그래프가 된다).
+        today_price = resolve_today_price(info["price"], info["is_open"], intraday_minutes, daily_closes)
+        chart_buffer = build_price_chart(daily_closes, today_price, intraday_minutes)
         # send_telegram_photo()가 parse_mode="HTML"로 보내므로, 종목명을 <b> 태그로 감싸면
         # 굵게 표시된다. html.escape()로 종목명에 HTML 특수문자가 섞여 있어도 태그 구조가
         # 깨지지 않게 한다. 텔레그램 캡션은 일반 텍스트라 HTML과 달리 공백이 줄어들지 않으므로,
@@ -114,6 +127,8 @@ def send_price_notification() -> None:
         else:
             print(f"❌ [{code}] 추이 그래프 전송에 실패했습니다.")
 
+    return True
+
 
 # if __name__ == "__main__": 은 "이 파일을 직접 실행했을 때만" 아래 코드를 돌리라는 뜻이다.
 # 다른 스크립트가 이 파일을 import만 하는 경우(예: check_manual_trigger.yml의 notify job이
@@ -121,4 +136,17 @@ def send_price_notification() -> None:
 # `from notify_stock_price import send_price_notification`처럼 함수만 가져다 쓰는 경우)에는
 # 이 블록이 자동으로 실행되지 않는다.
 if __name__ == "__main__":
-    send_price_notification()
+    # 아무것도 못 보냈으면 종료 코드 1로 끝내, GitHub Actions가 이 실행을 "실패"로 표시하게 한다.
+    # 0으로 끝나면 녹색 체크만 남아 네이버 차단 같은 장애를 알아챌 수 없다.
+    #
+    # send_price_notification()의 반환값 → 종료 코드 대응:
+    #   휴장일          → True  → 0   (보낼 게 없는 정상 종료. 실패가 아니다)
+    #   watchlist 실패   → False → 1   (관심종목 파일을 못 읽어 아무것도 못 함)
+    #   전 종목 조회 실패 → False → 1   (네이버가 막힌 경우가 대표적)
+    #   정상 완료        → True  → 0
+    #
+    # 단 "일부 종목만" 실패한 부분 실패는 여기 해당하지 않는다 — 나머지 종목은 정상적으로
+    # 전송됐으므로 실패가 아니라고 보고 그대로 0으로 끝낸다(로그에는 ❌로 남는다).
+    # sys.exit(n): 프로그램을 즉시 끝내면서 운영체제에 n을 "종료 코드"로 알려준다.
+    # 관례적으로 0은 성공, 0이 아닌 값은 실패를 뜻하고 GitHub Actions도 이 값으로 성패를 판단한다.
+    sys.exit(0 if send_price_notification() else 1)

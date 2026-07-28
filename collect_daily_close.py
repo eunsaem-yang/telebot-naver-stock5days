@@ -21,11 +21,14 @@ from stock_utils import (
 # (notify_stock_price.py처럼 함수로 감싸 재사용할 필요가 없어서 더 단순하게 작성했다).
 if not is_trading_day():
     print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 종가 수집을 건너뜁니다.")
+    # 휴장일은 실패가 아니라 "할 일이 없어 정상 종료"하는 경우이므로 종료 코드 0(exit())을 쓴다.
     exit()  # 스크립트를 여기서 즉시 종료한다 (아래 코드는 실행되지 않는다).
 
 watchlist_codes = read_watchlist()
 if watchlist_codes is None:
-    exit()
+    # exit(1)은 "실패로 끝났다"는 종료 코드다. 그냥 exit()(=0)으로 끝내면 GitHub Actions가
+    # 이 실행을 성공(녹색 체크)으로 표시해 버려서, 관심종목 파일을 못 읽는 장애를 알아챌 수 없다.
+    exit(1)
 
 # datetime.now(KST): 지금 이 순간의 날짜+시각(한국 시간 기준). GitHub Actions는 UTC로 돌기
 # 때문에 시간대를 명시하지 않으면 수동/야간 실행 시 날짜가 하루 어긋날 수 있다.
@@ -53,18 +56,14 @@ with get_turso_client() as client:
             print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
             continue
 
-        if info["price"] <= 0:
-            # 네이버 응답 파싱 실패 시 fetch_naver_current_price()가 조용히 0을 반환하는데,
-            # 이걸 그대로 저장하면 히스토리가 0원으로 오염된다 (그래프·전일 대비 계산이 깨짐).
-            print(f"⚠️ [{code}] 종가 조회 실패(0원). 기록하지 않습니다.")
-            continue
-
         update_price_history(code, today_str, info["price"], client=client)
         collected += 1
         print(f"✅ [{code}] {info['name']} 종가 {info['price']:,}원 기록")
 
 if collected == 0:
     print("❌ 기록된 종가가 하나도 없습니다.")
-    exit()
+    # 한 종목도 기록하지 못한 실패이므로 종료 코드 1로 끝낸다 — 그래야 GitHub Actions에 빨간
+    # 실패 표시와 기본 실패 알림이 뜬다. 0으로 끝나면 네이버 차단 같은 장애가 묻혀버린다.
+    exit(1)
 
 print(f"🎉 종가 히스토리를 Turso DB에 저장했습니다 ({collected}/{len(watchlist_codes)}종목).")
