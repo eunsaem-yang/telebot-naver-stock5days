@@ -5,7 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project overview
 
 빅데이터 파이썬 수업용 주식 정보 프로젝트. 관심종목(`watchlist.csv`)의 현재가와 최근 15거래일
-종가 추이를 확인하는 두 가지 경로를 제공한다.
+종가 추이를 확인하는 두 가지 경로를 제공한다. 관심종목 목록은 사용자가 수시로 직접 편집하는
+가변 입력이므로, 종목 수나 구성이 고정이라고 가정하면 안 된다 — 방금 추가된 종목은 다음
+`collect_daily_close.py` 실행 전까지 종가 히스토리가 0건이라는 점도 늘 염두에 둬야 한다.
 
 - **push (텔레그램)**: 하루 세 번(장이 열리는 평일 오전 10시/12시/2시) 자동으로 텔레그램 봇 API로
   전송. GitHub Actions의 scheduled workflow로 실행되며, 사용자가 직접 스크립트를 실행할 필요가 없다.
@@ -28,8 +30,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   최근 15일 종가 뒤에 오늘 분봉(`fetch_naver_intraday_minutes()`, 네이버 API로 즉시 조회,
   저장하지 않음)을 이어붙여 그리되, 분봉/현재가 조회에 성공했을 때만 DB의 "오늘 날짜" 항목을
   제외하고 그린다(`build_price_chart()` 내부 dedup) — 장마감 후~다음 장 시작 전처럼 분봉도
-  없고 장도 닫혀있으면(`is_open=False`) 현재가를 아예 넘기지 않아, 필연적으로 마지막 종가와
-  같은 값이 "오늘" 점으로 중복 표시되는 걸 막는다. 과거 종가 자체는 직접 재조회하지 않는다.
+  없고 장도 닫혀있으면(`is_open=False`) 현재가를 아예 넘기지 않아(`resolve_today_price()`),
+  필연적으로 마지막 종가와 같은 값이 "오늘" 점으로 중복 표시되는 걸 막는다. 단 **그 종목의
+  종가 히스토리가 하나도 없으면 이 "중복 방지" 예외를 적용하지 않고 현재가를 살린다** —
+  중복될 종가 자체가 없는데 현재가마저 버리면 그릴 점이 하나도 남지 않아 축과 격자만 있는
+  빈 그래프가 만들어지기 때문이다(새로 추가한 종목이나 `collect_daily_close.py` 최초 미실행
+  시 실제로 발생했다). 과거 종가 자체는 직접 재조회하지 않는다.
   실제 로직은 `send_price_notification()` 함수로 감싸져 있어, 텔레그램 트리거로 실행된
   경우(`check_manual_trigger.yml`의 `notify` job)에도 동일한 스크립트(`python
   notify_stock_price.py`)를 그대로 실행해 재사용한다.
@@ -39,15 +45,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   실행 환경을 우회했지만, Turso DB 자체가 영속 저장소 역할을 하므로 더 이상 git 커밋이 필요
   없다 (`ROADMAP.md` "Turso 마이그레이션" 절 참고).
 - `dashboard.py`: Streamlit 대시보드. `read_watchlist()`/`load_price_history()`/
-  `fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/`build_price_chart()`를
-  `notify_stock_price.py`와 그대로 공유해서 쓴다 — push/pull 두 경로가 같은 함수·같은 DB를
-  바라보므로 어느 쪽으로 확인해도 같은 내용을 본다(오늘 날짜 dedup, current_price=None 처리
-  등 위 `notify_stock_price.py` 설명의 그래프 관련 내용도 동일하게 적용됨). 종목명(코드)·
-  가격·등락은 `st.metric()` 대신 `st.markdown()` + 인라인 CSS로 직접 그려 글자 크기를 자유롭게
-  조정하고, 등락 색상은 **상승=빨강/하락=초록**으로 지정한다 — Streamlit `st.metric()` 기본값
-  (상승=초록/하락=빨강)이 한국 증시 관례와 반대라 의도적으로 뒤집은 것. 추이 설명도 종목마다
-  반복하지 않고 제목 아래 `st.empty()` 자리표시자로 한 번만 채운다. 로컬 실행은 `python -m
-  streamlit run dashboard.py`.
+  `fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/`resolve_today_price()`/
+  `dedupe_daily_closes()`/`build_price_chart()`를 `notify_stock_price.py`와 그대로 공유해서
+  쓴다 — push/pull 두 경로가 같은 함수·같은 DB를 바라보므로 어느 쪽으로 확인해도 같은 내용을
+  본다(오늘 날짜 dedup, current_price=None 처리 등 위 `notify_stock_price.py` 설명의 그래프
+  관련 내용도 동일하게 적용됨). 종목명(코드)·가격·등락은 `st.metric()` 대신 `st.markdown()` +
+  인라인 CSS로 직접 그려 글자 크기를 자유롭게 조정하고, 등락 색상은 **상승=빨강/하락=초록**으로
+  지정한다 — Streamlit `st.metric()` 기본값(상승=초록/하락=빨강)이 한국 증시 관례와 반대라
+  의도적으로 뒤집은 것. 색상이 필요해서 등락 표기만은 텔레그램용 `format_rate_badge()`를 쓰지
+  않고 따로 그린다(아래 `stock_utils.py` 문단 참고). 추이 설명도 종목마다 반복하지 않고 제목
+  아래 `st.empty()` 자리표시자로 한 번만 채운다. 로컬 실행은 `python -m streamlit run
+  dashboard.py`.
 - `check_manual_trigger.py`: 평일 장중 시간대(09~19시 KST)에 5분 간격으로 실행. 텔레그램에서
   수동 트리거가 있었는지(리플라이 키보드 버튼 `MANUAL_TRIGGER_TEXT` 또는 고정 메뉴 명령어
   `MANUAL_TRIGGER_COMMAND`="/notify" — 버튼이 붙은 메시지가 지워져도 명령어는 남아있음) `getUpdates`로
@@ -61,12 +69,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   키보드 버튼을 노출시키고, 고정 메뉴에 `/notify` 명령어를 등록한다.
 - `stock_utils.py`: 여러 스크립트가 공유하는 함수(네이버 현재가 조회, Turso DB 히스토리
   읽기/쓰기, 텔레그램 메시지·이미지·업데이트 조회, 그래프 생성, 거래일 판별) 모음. 그중
-  `describe_price_trend()`(추이 설명 문구)와 `format_rate_badge()`(가격+세모 이모지+등락률
-  문자열)는 텔레그램과 대시보드가 같은 표기를 쓰도록 공용으로 뺀 함수다.
+  `describe_price_trend()`(추이 설명 문구), `resolve_today_price()`("오늘" 점으로 쓸 현재가
+  결정), `dedupe_daily_closes()`(오늘 날짜 종가 걸러내기)는 텔레그램과 대시보드가 **실제로
+  같이 쓰는** 함수다 — push/pull 어느 쪽으로 봐도 그래프에 찍히는 점과 문구 속 "최근 N일"
+  숫자가 일치해야 하므로 공용으로 뺐다. `describe_price_trend()`는 `daily_closes` 유무를
+  먼저 확인해 분기하는데, 종가 히스토리가 없으면 "최근 0일"이라는 이상한 문구 대신 "오늘
+  현재가 추이 (종가 히스토리 누적 전)"을 돌려준다.
+  반면 `format_rate_badge()`(가격+세모 이모지+등락률 문자열)는 공용 함수가 아니라 **텔레그램
+  사진 캡션 전용**이다 — 대시보드는 등락에 색상이 들어간 HTML(`<span style="color:...">`)이
+  필요해 인라인으로 따로 구현했고, 그래서 기호도 다르다(텔레그램 `🔺`/`▼`/`▫️` vs 대시보드
+  `▲`/`▼`/`▫` + 색상). 하나로 합치려면 색상 인자·HTML 모드 플래그 같은 분기를 함수 안에
+  들여야 해서 오히려 복잡해지므로, 분리된 상태를 의도적으로 유지한다.
   `update_price_history()`는 `client` 인자를 선택적으로 받는다 — 안 넘기면 스스로 Turso
   클라이언트를 만들고 닫지만, `collect_daily_close.py`처럼 종목을 여러 개 순회하며 반복
   호출할 때는 `get_turso_client()`로 미리 만든 클라이언트를 넘겨 재사용해 종목마다 새
-  연결을 맺지 않는다(관심종목이 많아질 때를 대비한 최적화, 지금 3종목 규모에선 차이가 작음).
+  연결을 맺지 않는다(관심종목 수가 늘어날수록 이득이 커지는 최적화).
 
 과거 종가 히스토리는 `price_history.json` 파일 대신 **Turso**(libSQL 기반 서버리스 SQLite,
 `libsql-client`로 연동)의 `price_history` 테이블에 저장한다. 자세한 배경은 아래 "환경 변수"와
@@ -75,7 +92,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 시세 데이터는 네이버 금융 비공식 API(`m.stock.naver.com/api/stock/{code}/basic`) 하나로 통합되어
 있다. 이 엔드포인트는 장중이면 실시간 체결가를, 장 마감 후 호출하면 그날의 최종 종가를
 `marketStatus`/`closePrice` 필드로 그대로 돌려주기 때문에 "현재가 조회"와 "종가 기록"을 모두
-처리할 수 있다.
+처리할 수 있다. `fetch_naver_current_price()`는 응답을 받았더라도 가격을 숫자로 읽지 못하면
+(재시도 후에도 실패하면) 0원이 담긴 dict가 아니라 `None`을 반환해, 호출부 세 곳이 전부 "조회
+실패"로 똑같이 처리하게 한다 — 0원이 그대로 흘러가면 텔레그램·대시보드에 "0원"이 멀쩡한 가격처럼
+표시되고 Turso 히스토리까지 오염되므로, 값이 만들어지는 지점에서 아예 막는다.
 
 **공공데이터포털(data.go.kr) API는 더 이상 사용하지 않는다.** 활용신청 승인 여부와 무관하게
 `basDd` 날짜 필터가 항상 무시되고 고정된 데이터만 반환되는 문제를 확인했기 때문이다
@@ -89,6 +109,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 python ./notify_stock_price.py            # 현재가 알림 (하루 3회 스케줄)
 python ./collect_daily_close.py           # 종가 히스토리 수집 (하루 1회, 장마감 후)
+python ./telebot.py                       # TELEGRAM_CHAT_ID 확인 (최초 1회만)
 python ./setup_telegram_button.py         # 수동 트리거 버튼 노출 (최초 1회만)
 python ./check_manual_trigger.py          # 수동 트리거 버튼 확인 (평일 장중 5분 간격 스케줄)
 python -m streamlit run dashboard.py      # Pull 방식 대시보드 (원할 때 직접 실행/접속)
@@ -101,7 +122,7 @@ Streamlit Community Cloud에 배포해둔 대시보드는 `origin/main` 푸시�
 내로 자동 재배포되지만, 반영이 늦거나 안 될 때는 https://share.streamlit.io 에 직접 로그인해서
 앱 목록에서 해당 앱을 찾으면 Reboot에 접근할 수 있다.
 
-## 자동 실행 (GitHub Actions)
+## 자동 실행 (GitHub Actions + cron-job.org 이중 트리거)
 
 `.github/workflows/notify.yml`(10:05/12:05/14:05시 KST, 평일), `.github/workflows/collect_close.yml`
 (15:45 KST 장마감 직후, 평일), `.github/workflows/check_manual_trigger.yml`(평일 09~19시 KST,
@@ -115,13 +136,27 @@ Streamlit Community Cloud에 배포해둔 대시보드는 `origin/main` 푸시�
 나뉘어 있다 — 대부분의 폴링은 트리거가 없어 `check` job(가벼운 의존성만 설치)에서 끝나고,
 버튼이 눌렸을 때만 `notify` job(`requirements.txt` 전체 설치)이 이어서 실행된다.
 
+GitHub Actions 네이티브 `schedule`이 예정 시각에 통째로 스킵되는 신뢰성 문제 때문에, **세 워크플로
+모두**(`notify.yml`/`collect_close.yml`/`check_manual_trigger.yml`)에 대해 **cron-job.org**에 같은
+시각의 외부 작업을 별도로 등록해 **이중으로 트리거**하고 있다. 방식은 cron-job.org가 GitHub API의
+`.../actions/workflows/<파일명>/dispatches` 엔드포인트를 PAT(`Authorization: Bearer <PAT>`)로
+POST하는 것이고, 그러면 `workflow_dispatch` 이벤트로 실행된다 — 그래서 세 워크플로 모두
+`workflow_dispatch:` 트리거를 갖고 있어야 한다(빠지면 그 워크플로만 외부 트리거를 못 받는다).
+
+**운영상 주의: 실행 시각을 바꿀 때는 `.github/workflows/*.yml`의 cron과 cron-job.org 쪽 작업
+스케줄을 둘 다 고쳐야 한다.** 한쪽만 고치면 의도와 다른 시각에 이중으로 돌거나 아예 안 돈다.
+이때 표기 기준이 서로 다르다는 점도 주의할 것 — 워크플로의 cron은 UTC인 반면, cron-job.org 쪽
+작업은 Timezone이 `Asia/Seoul`로 설정돼 있어 KST 시각을 그대로 적는다. PAT 발급부터 작업 등록,
+검증, 401 트러블슈팅까지의 자세한 절차는 `ROADMAP.md`의 "cron-job.org 이중 트리거 실제 도입",
+"collect_close.yml에 cron-job.org 이중 트리거 추가" 절 참고.
+
 ## 환경 변수
 
 `.env`에서 `python-dotenv`로 로드한다 (로컬 실행용). GitHub Actions에서는 저장소 Secrets에,
 Streamlit Community Cloud에서는 앱 Settings → Secrets에 동일한 이름으로 등록해서 사용한다.
 필수 값: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
 - `TELEGRAM_BOT_TOKEN`: 텔레그램 `@BotFather`에서 `/newbot`으로 발급
-- `TELEGRAM_CHAT_ID`: 봇에게 메시지를 보낸 뒤 `telegram_bot.py`를 실행해 `getUpdates` 응답에서 확인
+- `TELEGRAM_CHAT_ID`: 봇에게 메시지를 보낸 뒤 `telebot.py`를 실행해 `getUpdates` 응답에서 확인
 - `TURSO_DATABASE_URL`: `turso db create <db이름>` 후 `turso db show <db이름> --url`로 확인
   (`libsql://...` 형태)
 - `TURSO_AUTH_TOKEN`: `turso db tokens create <db이름>`로 발급
@@ -142,7 +177,8 @@ Streamlit Community Cloud에서는 앱 Settings → Secrets에 동일한 이름�
 ## 테스트/린트
 
 테스트, 포매터는 설정되어 있지 않다. 문법 오류는 편집 후 자동으로 `python -m py_compile`이 실행되어 확인된다.
-린트는 `ruff`(pip로 설치됨)를 사용한다:
+린트는 `ruff`를 사용한다. 다만 환경에 따라 설치돼 있지 않을 수 있고(아래 명령이
+`No module named ruff`로 끝나면 그 경우다), 그럴 때는 `pip install ruff`로 먼저 설치한다:
 
 ```
 python -m ruff check .
