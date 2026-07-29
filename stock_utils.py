@@ -509,10 +509,25 @@ def build_price_chart(daily_closes: list, current_price: int = None,
     import matplotlib
     matplotlib.use("Agg")  # 화면 출력 없이 이미지 파일(버퍼)로만 저장
     import matplotlib.pyplot as plt
+    from matplotlib import font_manager
 
-    plt.rcParams["font.family"] = ["Malgun Gothic", "NanumGothic", "AppleGothic"]  # 그래프 한글 표시
-    # Windows 로컬은 맑은 고딕, GitHub Actions(Ubuntu, fonts-nanum 설치)는 나눔고딕, macOS는 애플고딕이
-    # 순서대로 탐색되어 설치된 첫 폰트가 사용된다.
+    # 그래프에 한글을 표시하려면 한글 폰트가 필요한데, 실행 환경마다 설치된 폰트가 다르다:
+    # Windows 로컬은 맑은 고딕, macOS는 애플고딕, GitHub Actions(Ubuntu)와 Streamlit Cloud는
+    # 나눔고딕(각각 워크플로의 fonts-nanum 설치와 packages.txt로 깔린다).
+    #
+    # 그렇다고 세 이름을 그냥 다 나열하면, matplotlib이 "이 환경에 없는 이름"마다 findfont 경고를
+    # 글자 요소 하나하나에 대해 찍어서 로그가 수백 줄로 뒤덮인다 — 목록에서 쓸 폰트를 하나 찾으면
+    # 멈추는 게 아니라 목록 전체를 확인하기 때문이다(그래서 순서를 바꿔도 경고는 그대로다).
+    # 그래서 지금 이 환경에 실제로 설치돼 있는 것만 골라서 넘긴다.
+    #
+    # font_manager.fontManager.ttflist: matplotlib이 시스템에서 찾아낸 폰트 목록. 각 항목의
+    # .name이 폰트 이름이라, 집합(set)으로 만들어 두면 "이 이름이 있나?"를 빠르게 확인할 수 있다.
+    installed_fonts = {f.name for f in font_manager.fontManager.ttflist}
+    korean_fonts = [name for name in ("Malgun Gothic", "NanumGothic", "AppleGothic")
+                    if name in installed_fonts]
+    # 한글 폰트가 하나도 없으면 빈 리스트가 되므로 기본 sans-serif로 떨어뜨린다. 이때는 한글이
+    # 네모(두부)로 깨지고 경고도 그대로 뜨는데, 그건 실제로 알아야 할 문제라 일부러 감추지 않는다.
+    plt.rcParams["font.family"] = korean_fonts or ["sans-serif"]
     plt.rcParams["axes.unicode_minus"] = False  # 마이너스 기호 깨짐 방지
 
     # "오늘" 구간에 그릴 값들을 상황별로 결정한다 (우선순위: 분봉 > 현재가 한 점 > 아무것도 없음).
