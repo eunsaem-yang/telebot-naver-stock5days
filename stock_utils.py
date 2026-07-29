@@ -244,7 +244,10 @@ def fetch_naver_current_price(code: str, retries: int = 2) -> dict:
     Turso 히스토리에 되돌릴 수 없는 구멍을 남기기 때문에, 최소한의 재시도로 그 위험을 줄인다.
 
     조회 자체가 실패했을 때뿐 아니라, 응답은 왔지만 가격을 숫자로 읽지 못했을 때(0원)도
-    0이 담긴 dict 대신 None을 반환합니다 — 호출부가 "실패"로 명확히 구분할 수 있게."""
+    0이 담긴 dict 대신 None을 반환합니다 — 호출부가 "실패"로 명확히 구분할 수 있게.
+
+    반환 dict에는 가격·등락률·장 개장 여부와 함께 그 가격이 체결된 시각("traded_at")도
+    담깁니다 — 조회 시각이 아니라 체결 시각이라 저장할 거래일을 정하는 기준으로 쓸 수 있습니다."""
     url = f"https://m.stock.naver.com/api/stock/{code}/basic"
     # 왜 재시도가 필요한가: 이 함수는 notify_stock_price.py(현재가 알림)와 collect_daily_close.py
     # (종가 기록) 양쪽에서 쓰인다. notify 쪽은 실패해도 다음 알림 때 다시 시도되지만, collect 쪽은
@@ -288,6 +291,12 @@ def fetch_naver_current_price(code: str, retries: int = 2) -> dict:
                         # "fluctuationsRatio"가 없거나 빈 문자열("")이면 or 뒤의 "0"을 대신 쓴다.
                         "rate": float(data.get("fluctuationsRatio", "0") or "0"),
                         "is_open": data.get("marketStatus") == "OPEN",
+                        # localTradedAt: 네이버가 주는 실제 체결(갱신) 시각. "2026-07-29T16:10:20+09:00"
+                        # 형태이고 KST 오프셋(+09:00)까지 붙어 있다. 조회 시각이 아니라 체결 시각이라
+                        # 자정을 넘겨 조회해도 그 종목이 마지막으로 거래된 날을 그대로 가리킨다 —
+                        # collect_daily_close.py가 "언제 실행됐는가"가 아니라 "이 가격이 언제 체결된
+                        # 것인가"를 기준으로 날짜를 정하는 데 쓴다.
+                        "traded_at": data.get("localTradedAt"),
                     }
         except Exception as e:
             print(f"❌ [{code}] 네이버 현재가 조회 중 오류 발생: {e} ({attempt}/{retries}번째 시도)")

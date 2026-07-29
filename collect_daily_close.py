@@ -30,13 +30,7 @@ if watchlist_codes is None:
     # 이 실행을 성공(녹색 체크)으로 표시해 버려서, 관심종목 파일을 못 읽는 장애를 알아챌 수 없다.
     exit(1)
 
-# datetime.now(KST): 지금 이 순간의 날짜+시각(한국 시간 기준). GitHub Actions는 UTC로 돌기
-# 때문에 시간대를 명시하지 않으면 수동/야간 실행 시 날짜가 하루 어긋날 수 있다.
-# .strftime("%Y%m%d")로 "20260723" 같은 8자리 문자열로 바꾼다 — Turso DB의 date 컬럼과
-# 같은 형식을 맞추기 위해서다.
-today_str = datetime.now(KST).strftime("%Y%m%d")
-
-print(f"🚀 [{today_str}] 종가 수집 시작...")
+print(f"🚀 종가 수집 시작... (실행 시각 {datetime.now(KST).strftime('%Y-%m-%d %H:%M')} KST)")
 
 collected = 0  # 실제로 저장에 성공한 종목 수를 센다.
 # get_turso_client()를 루프 밖에서 딱 한 번만 호출해 클라이언트 하나를 만들고, 종목마다
@@ -56,9 +50,23 @@ with get_turso_client() as client:
             print(f"⚠️ [{code}] 아직 장중입니다. 확정되지 않은 가격이라 기록하지 않습니다.")
             continue
 
-        update_price_history(code, today_str, info["price"], client=client)
+        # 저장할 날짜는 "지금 몇 시인가"가 아니라 "이 가격이 언제 체결된 것인가"로 정한다.
+        # datetime.now()를 쓰면 스케줄이 지연돼 자정을 넘겨 실행됐을 때 전날 종가가 다음날
+        # 날짜로 저장된다(실제로 발생했던 문제다). traded_at은 체결 시각이라 실행 시각과
+        # 무관하게 항상 옳은 거래일을 가리킨다.
+        # "2026-07-29T16:10:20+09:00"에서 앞 10글자가 날짜("2026-07-29")이고, 하이픈을 빼면
+        # DB의 date 컬럼 형식("20260729")이 된다.
+        traded_at = info.get("traded_at") or ""
+        if len(traded_at) >= 10:
+            date_str = traded_at[:10].replace("-", "")
+        else:
+            # 네이버 응답에 이 필드가 없거나 형식이 바뀐 경우의 폴백 — 예전처럼 실행 시각을 쓴다.
+            date_str = datetime.now(KST).strftime("%Y%m%d")
+            print(f"⚠️ [{code}] 체결 시각을 읽지 못해 실행 시각 기준으로 날짜를 정합니다.")
+
+        update_price_history(code, date_str, info["price"], client=client)
         collected += 1
-        print(f"✅ [{code}] {info['name']} 종가 {info['price']:,}원 기록")
+        print(f"✅ [{code}] {info['name']} {date_str} 종가 {info['price']:,}원 기록")
 
 if collected == 0:
     print("❌ 기록된 종가가 하나도 없습니다.")

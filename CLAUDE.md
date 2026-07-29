@@ -41,9 +41,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   notify_stock_price.py`)를 그대로 실행해 재사용한다.
 - `collect_daily_close.py`: 하루 1회, 장마감 직후 실행. 그날의 최종 종가를 조회해 Turso DB의
   `price_history` 테이블에 누적 저장(종목별 최근 15거래일치만 유지, 오래된 행은 자동 삭제)한다.
-  예전에는 JSON 파일(`price_history.json`)을 저장소에 직접 커밋해 GitHub Actions의 상태 없는
-  실행 환경을 우회했지만, Turso DB 자체가 영속 저장소 역할을 하므로 더 이상 git 커밋이 필요
-  없다 (`ROADMAP.md` "Turso 마이그레이션" 절 참고).
+  저장할 날짜는 실행 시각(`datetime.now()`)이 아니라 네이버 응답의 체결 시각
+  (`localTradedAt` → `fetch_naver_current_price()`의 `traded_at`)에서 뽑는다 — 실행 시각을
+  쓰면 GitHub Actions 스케줄이 지연돼 자정을 넘겨 실행됐을 때 전날 종가가 다음날 날짜로
+  저장되는데(실제로 발생했다), 체결 시각은 언제 조회하든 그 종목이 마지막으로 거래된 날을
+  가리키므로 항상 올바른 거래일에 저장된다. 종목마다 따로 계산하므로 거래정지 등으로 마지막
+  체결일이 다른 종목도 각자 맞는 날짜로 기록된다. 예전에는 JSON 파일(`price_history.json`)을
+  저장소에 직접 커밋해 GitHub Actions의 상태 없는 실행 환경을 우회했지만, Turso DB 자체가
+  영속 저장소 역할을 하므로 더 이상 git 커밋이 필요 없다 (`ROADMAP.md` "Turso 마이그레이션"
+  절 참고).
 - `dashboard.py`: Streamlit 대시보드. `read_watchlist()`/`load_price_history()`/
   `fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/`resolve_today_price()`/
   `dedupe_daily_closes()`/`build_price_chart()`를 `notify_stock_price.py`와 그대로 공유해서
