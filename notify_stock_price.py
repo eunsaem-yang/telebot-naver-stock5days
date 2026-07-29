@@ -34,7 +34,8 @@ def send_price_notification() -> bool:
     """관심종목 현재가 텍스트 메시지와 종목별 추이 그래프를 텔레그램으로 전송합니다.
 
     관심종목을 하나라도 처리했으면(휴장일이라 보낼 게 없는 경우 포함) True, 아무것도 하지
-    못했으면 False를 반환합니다.
+    못했으면 False를 반환합니다. 여기서 "아무것도 하지 못했다"에는 조회에 전부 실패한 경우뿐
+    아니라 조회는 됐는데 텔레그램 전송이 전부 실패한 경우도 포함됩니다.
     """
     if not is_trading_day():
         print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 알림을 건너뜁니다.")
@@ -90,9 +91,12 @@ def send_price_notification() -> bool:
     first_daily_closes = dedupe_daily_closes(first_daily_closes, first_today_price, first_intraday_minutes)
     telegram_message += f"\n\n{describe_price_trend(first_daily_closes, first_intraday_minutes)}"
 
+    sent = 0  # 텔레그램으로 실제 전송에 성공한 건수(텍스트 1건 + 종목별 사진)를 센다.
+
     # reply_markup으로 수동 트리거 버튼을 매번 같이 보내, 텔레그램 클라이언트가 어떤 이유로든
     # 버튼을 숨겨도 다음 알림에서 다시 노출되도록 한다.
     if send_telegram_message(telegram_message, reply_markup=MANUAL_TRIGGER_KEYBOARD):
+        sent += 1
         print("✅ 현재가 메시지를 텔레그램으로 전송했습니다!")
     else:
         print("❌ 현재가 메시지 전송에 실패했습니다.")
@@ -123,9 +127,17 @@ def send_price_notification() -> bool:
         )
 
         if send_telegram_photo(chart_buffer, caption):
+            sent += 1
             print(f"🎉 [{code}] 추이 그래프를 텔레그램으로 전송했습니다!")
         else:
             print(f"❌ [{code}] 추이 그래프 전송에 실패했습니다.")
+
+    # "하나도 못 보냈을 때만" 실패로 본다 — 일부 종목의 사진만 실패한 경우는 나머지가 정상적으로
+    # 도착했으므로 실패가 아니다. 반대로 한 건도 못 보냈다면 봇 토큰 만료·텔레그램 장애처럼
+    # 사용자가 알아채야 할 문제이므로 False를 돌려줘 종료 코드 1로 끝나게 한다.
+    if sent == 0:
+        print("❌ 텔레그램으로 아무것도 전송하지 못했습니다. 봇 토큰과 텔레그램 API 상태를 확인해 주세요.")
+        return False
 
     return True
 
@@ -143,10 +155,11 @@ if __name__ == "__main__":
     #   휴장일          → True  → 0   (보낼 게 없는 정상 종료. 실패가 아니다)
     #   watchlist 실패   → False → 1   (관심종목 파일을 못 읽어 아무것도 못 함)
     #   전 종목 조회 실패 → False → 1   (네이버가 막힌 경우가 대표적)
+    #   전 종목 전송 실패 → False → 1   (봇 토큰 만료·텔레그램 장애)
     #   정상 완료        → True  → 0
     #
-    # 단 "일부 종목만" 실패한 부분 실패는 여기 해당하지 않는다 — 나머지 종목은 정상적으로
-    # 전송됐으므로 실패가 아니라고 보고 그대로 0으로 끝낸다(로그에는 ❌로 남는다).
+    # 단 "일부만" 실패한 부분 실패는 조회든 전송이든 여기 해당하지 않는다 — 나머지 종목은
+    # 정상적으로 조회·전송됐으므로 실패가 아니라고 보고 그대로 0으로 끝낸다(로그에는 ❌로 남는다).
     # sys.exit(n): 프로그램을 즉시 끝내면서 운영체제에 n을 "종료 코드"로 알려준다.
     # 관례적으로 0은 성공, 0이 아닌 값은 실패를 뜻하고 GitHub Actions도 이 값으로 성패를 판단한다.
     sys.exit(0 if send_price_notification() else 1)
