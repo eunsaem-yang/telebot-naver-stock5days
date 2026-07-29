@@ -4,6 +4,7 @@ watchlist.csv·네이버 API·Turso DB(load_price_history)를 notify_stock_price
 공유해서 쓴다 — push(텔레그램)와 pull(대시보드) 두 경로가 동일한 데이터·저장소를 바라보므로
 어느 쪽으로 확인해도 같은 내용을 본다.
 """
+import html
 import os
 import streamlit as st
 
@@ -44,8 +45,8 @@ trend_placeholder = st.empty()
 # st.cache_data: 이 함수의 반환값을 ttl(유효 시간) 동안 기억해뒀다가, 같은 인자로 다시 호출되면
 # 실제로 다시 실행하지 않고 기억해둔 값을 즉시 돌려준다. Streamlit은 상호작용마다 스크립트
 # 전체를 처음부터 다시 실행하는데, 캐싱이 없으면 그때마다 네이버 API·Turso DB를 매번 다시
-# 호출하게 된다 — 현재가/분봉은 자주 바뀌니 짧게(1분), DB 히스토리는 하루 1회만 바뀌니
-# 조금 더 길게(5분) 기억해둔다.
+# 호출하고 watchlist.csv도 매번 다시 읽게 된다 — 현재가/분봉은 자주 바뀌니 짧게(1분),
+# DB 히스토리와 관심종목 CSV는 자주 바뀌지 않으니 조금 더 길게(5분) 기억해둔다.
 @st.cache_data(ttl="1m")
 def _cached_current_price(code):
     return fetch_naver_current_price(code)
@@ -61,6 +62,16 @@ def _cached_history():
     return load_price_history()
 
 
+@st.cache_data(ttl="5m")
+def _cached_watchlist():
+    return read_watchlist()
+
+
+@st.cache_data(ttl="5m")
+def _cached_watchlist_names():
+    return read_watchlist_names()
+
+
 # st.button(): 버튼을 화면에 그리고, "이번 실행에서 방금 눌렸는지"를 True/False로 돌려준다.
 # 중요한 건 Streamlit의 실행 모델이다 — 이 파일은 한 번 실행되고 끝나는 게 아니라, 페이지를
 # 새로고침하거나 버튼을 누르는 등 뭔가와 상호작용할 때마다 맨 위(import문)부터 이 파일 전체가
@@ -72,11 +83,15 @@ if st.button("🔄 새로고침"):
     _cached_current_price.clear()
     _cached_intraday.clear()
     _cached_history.clear()
+    # 관심종목 캐시도 같이 비운다 — watchlist.csv를 편집한 뒤 새로고침을 눌렀는데 ttl(5분)이
+    # 지날 때까지 예전 목록이 그대로 보이면 곤란하기 때문이다.
+    _cached_watchlist.clear()
+    _cached_watchlist_names.clear()
     st.rerun()
 
-codes = read_watchlist()
+codes = _cached_watchlist()
 history = _cached_history()
-watchlist_names = read_watchlist_names()
+watchlist_names = _cached_watchlist_names()
 
 trend_shown = False  # 추이 설명 문구를 이미 한 번 표시했는지 (첫 성공한 종목에서만 채운다).
 
@@ -126,7 +141,9 @@ for code in codes or []:
 
     # 종목명(코드)은 한 줄, 가격·등락은 그 다음 줄(4칸 들여쓰기)에 표시한다. 한 줄에 다 넣으니
     # 폭이 좁은 화면에서 넘쳐서 줄을 나눴다. 종목명만 <b>로 굵게 강조한다. 색상은 한국 증시
-    # 관례(상승=빨강/하락=초록)를 따른다.
+    # 관례(상승=빨강/하락=초록)를 따른다. unsafe_allow_html=True로 HTML을 직접 그리므로,
+    # html.escape()로 종목명에 HTML 특수문자가 섞여 있어도 태그 구조가 깨지지 않게 한다
+    # (텔레그램 쪽 notify_stock_price.py와 동일한 처리다).
     rate = current["rate"]
     if rate > 0:
         delta_arrow, delta_color = "▲", "#ff2b2b"
@@ -137,7 +154,7 @@ for code in codes or []:
     st.markdown(
         f"""
         <div style="font-size:14.8pt;">
-            📈 <b>{current['name']}</b> ({code})<br>
+            📈 <b>{html.escape(current['name'])}</b> ({code})<br>
             &nbsp;&nbsp;&nbsp;&nbsp;{current['price']:,}원
             <span style="color:{delta_color};font-size:11pt;">{delta_arrow} {rate}%</span>
         </div>
