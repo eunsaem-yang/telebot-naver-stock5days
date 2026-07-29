@@ -30,6 +30,8 @@ send_price_notification()으로 로직을 감싸 둔 이유는 check_manual_trig
 텔레그램 전송에 전부 실패해도 종료 코드 0으로 끝나서 Actions에 녹색 체크만 남았고, 그
 경우와 공휴일이 구분되지 않았다. 녹색 체크가 "정상 동작 중"이라고 잘못 알려주던 셈이라
 침묵보다 나빴다.
+
+(같은 표가 CLAUDE.md "자동 실행" 절에도 있다. 한쪽을 고치면 다른 쪽도 같이 고칠 것.)
 """
 import html
 import sys
