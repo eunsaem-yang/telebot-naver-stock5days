@@ -1,4 +1,10 @@
+# 비밀정보 — 저장소가 public이므로 커밋되면 즉시 노출된다
 .env
+.env.*
+!.env.example
+*token*.txt
+*secret*
+
 __pycache__/
 *.pyc
 *.docx

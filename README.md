@@ -41,14 +41,35 @@ pip install -r requirements.txt
 **이 단계는 자동화할 수 없습니다 — 각자 자기 Turso 계정에서 직접 DB를 만들고 접속 정보를
 발급받아야 합니다.** (텔레그램 봇 토큰을 각자 발급받는 것과 동일한 이유입니다.)
 
+### 방법 A — 웹 콘솔 (권장, OS 무관)
+
+**CLI를 설치할 필요가 없습니다.** 2026-07-30 Windows에서 실제로 검증했습니다(웹에서 발급한
+값으로 `CREATE TABLE`/`INSERT`/`SELECT`까지 정상 동작).
+
+1. 브라우저에서 https://turso.tech 접속 → GitHub 계정으로 로그인
+2. **Create Database** → 이름은 `telebot-stock`, 지역(region)은 기본값
+3. 만든 DB를 클릭 → **Connect**(또는 Connection details)에서 URL 확인
+   → 이 값이 `TURSO_DATABASE_URL` (`libsql://...` 또는 `https://...` 형태, 둘 다 됩니다)
+4. 같은 화면에서 **Create Token** → 발급된 값이 `TURSO_AUTH_TOKEN`
+
+> ⚠️ 발급된 토큰은 **어디에도 붙여넣지 마세요** — 카톡·디스코드·과제 제출물·AI 채팅 모두
+> 안 됩니다. 바로 `.env`에만 넣으세요.
+
+이 방법은 **DB 단위 토큰만** 다루므로, 아래 CLI 방식에서 만들어지는 "계정 전체를 제어하는
+토큰"을 아예 발급하지 않습니다. 실수로 노출되더라도 피해 범위가 그 DB 하나로 제한됩니다.
+
+### 방법 B — CLI (선택)
+
+터미널에서 다루고 싶거나 자동화가 필요할 때만 쓰면 됩니다. **Windows는 공식 설치 스크립트가
+없어 WSL이 필요하므로, 특별한 이유가 없으면 방법 A를 쓰세요.**
+
 1. Turso CLI 설치
    - Mac/Linux:
      ```
      curl -sSfL https://get.tur.so/install.sh | bash
      ```
-   - Windows: 공식 설치 스크립트가 Mac/Linux용이라, WSL을 사용하거나 Mac이 있다면 그쪽에서
-     이 단계(1~4)만 진행한 뒤 발급된 두 값을 Windows의 `.env`에 그대로 복사해도 됩니다 —
-     한 번 발급받은 URL/토큰은 어느 OS에서든 동일하게 쓸 수 있습니다.
+   - Windows: 공식 설치 스크립트가 Mac/Linux용이라 WSL이 필요합니다. **번거로우면 위 방법 A
+     (웹 콘솔)를 쓰세요** — 얻는 값은 완전히 같습니다.
 2. 가입/로그인 (대화형 — 브라우저가 열림, GitHub 계정으로 진행)
    - Turso 계정이 **처음**이면:
      ```
@@ -73,7 +94,7 @@ pip install -r requirements.txt
    turso db tokens create telebot-stock
    ```
 
-### 2번(가입/로그인)이 멈추거나 타임아웃될 때
+### (방법 B에서만) 2번 가입/로그인이 멈추거나 타임아웃될 때
 
 브라우저는 열렸는데 터미널이 "Waiting for authentication..."에서 멈추거나
 `Error: authentication timed out, try again`가 뜨는 경우가 있습니다. CLI가 브라우저 응답을
