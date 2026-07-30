@@ -260,7 +260,17 @@
 **8주 — 종가가 DB에 쌓인다**
 - **이번 주 결과물**: 매일 종가가 DB에 쌓이기 시작한다
 - 영상(80분): SQL 기본 문법(`CREATE TABLE`·`INSERT`·`SELECT`·`DELETE`·`PRIMARY KEY`),
-  **JSON 구조를 테이블 스키마로 바꾸는 사고 과정**, Turso 계정 생성과 `turso db create` 시연
+  **JSON 구조를 테이블 스키마로 바꾸는 사고 과정**, Turso **웹 콘솔**에서 DB 만들고 값 얻는 시연
+- **세팅은 웹 콘솔로 한다 — CLI를 가르치지 않는다.** ①`turso.tech` 로그인 → ②Create Database →
+  ③URL·토큰 복사 → ④`.env`에 두 줄 붙여넣기. **2026-07-30 Windows에서 실제로 검증했다**
+  (웹에서 발급한 값으로 `CREATE TABLE`/upsert `INSERT`/`SELECT`/`DROP`까지 전부 통과).
+  이 결정으로 CLI 설치(**Windows는 공식 스크립트가 Mac/Linux용이라 WSL이 필요했다**),
+  `turso auth signup`의 브라우저 콜백 타임아웃, `--headless` 우회가 **전부 불필요**해졌다 —
+  35명 × 2개 분반에게 WSL 설치를 요구하지 않아도 된다(`ROADMAP.md` "Turso 웹 콘솔로 세팅 가능
+  확인" 절 참고).
+  부수 이득: CLI 인증을 안 거치면 **계정 전체를 관리하는 토큰을 아예 만들지 않는다.** 학생은
+  DB 단위 토큰만 다루므로 실수로 노출해도 피해가 그 DB 하나로 제한된다.
+  CLI는 심화(선택)로만 언급한다.
 - 대면(90분) / 학생 작성 12~18줄: `price_history` 테이블 스키마 설계 + `CREATE TABLE` +
   그날 종가를 넣는 `INSERT`까지. 실제로 행이 들어간 것을 조회로 확인하는 것이 이 주차의 성공 증명
 - `update_price_history()`에 쓰인 두 SQL 패턴을 구체적으로 다룬다: (1) 같은 (종목, 날짜)
