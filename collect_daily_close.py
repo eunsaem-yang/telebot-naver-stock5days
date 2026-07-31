@@ -10,7 +10,6 @@ from datetime import datetime
 
 from stock_utils import (
     KST,
-    is_trading_day,
     read_watchlist,
     update_price_history,
     fetch_naver_current_price,
@@ -19,11 +18,16 @@ from stock_utils import (
 
 # 이 파일은 함수로 감싸지 않고 맨 위에서 아래로 순서대로 실행되는 "스크립트" 형태다
 # (notify_stock_price.py처럼 함수로 감싸 재사용할 필요가 없어서 더 단순하게 작성했다).
-if not is_trading_day():
-    print("📅 오늘은 KRX 개장일이 아닙니다 (주말/공휴일). 종가 수집을 건너뜁니다.")
-    # 휴장일은 실패가 아니라 "할 일이 없어 정상 종료"하는 경우이므로 종료 코드 0(exit())을 쓴다.
-    exit()  # 스크립트를 여기서 즉시 종료한다 (아래 코드는 실행되지 않는다).
-
+# 다른 스크립트(notify_stock_price.py, check_manual_trigger.py)와 달리 여기서는
+# is_trading_day()로 휴장일을 걸러내지 않는다. 저장할 날짜를 "지금 몇 시인가"가 아니라
+# traded_at(체결 시각)에서 뽑기 때문에, 휴장일에 실행돼도 네이버가 돌려주는 마지막 거래일의
+# 종가가 그 거래일 날짜로 저장된다 — 이미 저장돼 있으면 같은 값으로 덮어쓸 뿐이라(upsert)
+# 중복도 생기지 않는다. 그래서 그 결과 로그에는 실행한 날이 아니라 마지막 거래일 날짜가 찍힌다
+# (예: 광복절에 실행하면 그 전 거래일 날짜가 기록된다). 헷갈릴 수 있지만 그게 맞는 동작이다.
+#
+# 오히려 가드가 있으면 "실행일" 기준으로 판단하기 때문에, 금요일 작업이 밀려 토요일에 실행될
+# 경우 "개장일이 아니다"로 통째로 스킵되어 그날 종가를 영영 놓친다(나중에 채울 방법이 없다).
+# GitHub Actions 스케줄이 4~8시간씩 밀리는 것이 실제로 관측돼 있어 일어날 수 있는 일이다.
 watchlist_codes = read_watchlist()
 if watchlist_codes is None:
     # exit(1)은 "실패로 끝났다"는 종료 코드다. 그냥 exit()(=0)으로 끝내면 GitHub Actions가

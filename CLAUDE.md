@@ -107,8 +107,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `basDd` 날짜 필터가 항상 무시되고 고정된 데이터만 반환되는 문제를 확인했기 때문이다
 (자세한 진단 과정과 원인은 `ROADMAP.md`의 "알려진 이슈" 절 참고).
 
-거래일 판별은 `holidays`(`country="KR"`) 패키지로 주말/공휴일을 걸러낸다. API의 빈 응답으로
-휴장일을 추측하던 방식보다 안정적이다.
+거래일 판별(`is_trading_day()`)은 `holidays`(`country="KR"`) 패키지로 주말/공휴일을 걸러낸다.
+API의 빈 응답으로 휴장일을 추측하던 방식보다 안정적이다. 다만 이 가드를 쓰는 스크립트는
+`notify_stock_price.py`와 `check_manual_trigger.py` **둘뿐이다** — `collect_daily_close.py`는
+일부러 쓰지 않는다. 저장 날짜를 `traded_at`에서 뽑으므로 휴장일에 실행돼도 마지막 거래일 종가가
+그 거래일 날짜로 upsert되어 헛돌지 않는 반면, 가드는 "실행일" 기준이라 **금요일 작업이 밀려
+토요일에 실행되면 통째로 스킵돼 그 거래일 종가를 영구히 잃기** 때문이다(`ROADMAP.md`의 "남은
+한계 (P18로 등재)" 절 참고). 대신 공휴일에 실행하면 로그에 실행일이 아니라 마지막 거래일 날짜가
+찍힌다.
 
 ## 실행 방법
 
