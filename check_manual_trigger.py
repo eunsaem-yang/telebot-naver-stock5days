@@ -11,6 +11,10 @@
 
 휴장일(주말/공휴일)에 버튼을 눌러도 notify_stock_price.py는 어차피 아무것도 안 보내고 조용히
 끝나므로, 여기서 is_trading_day()로 미리 걸러 무거운 notify job 자체가 켜지지 않게 한다.
+다만 그 경우에도 "쉬는 날이라 보낼 시세가 없다"는 안내 메시지 한 건은 보낸다 — 버튼을 누른 것은
+사용자의 명시적 요청이고, 요청에 아무 응답이 없으면 정상 종료와 고장을 구별할 수 없기 때문이다.
+안내에 대시보드를 함께 언급하는 이유는, 휴장일에 "쌓인 과거 종가를 본다"는 것은 push(텔레그램)가
+아니라 pull(대시보드)이 맡는 일이기 때문이다 — 새 시세는 push, 쌓인 데이터는 pull.
 
 로컬에서 직접 실행하면 감지 결과만 출력한다. 감지됐을 때 바로 알림까지 보내보고 싶다면
 `python notify_stock_price.py`를 이어서 실행하면 된다.
@@ -19,6 +23,7 @@ import os
 
 from stock_utils import (
     fetch_telegram_updates,
+    send_telegram_message,
     is_trading_day,
     MANUAL_TRIGGER_TEXT,
     MANUAL_TRIGGER_COMMAND,
@@ -79,6 +84,15 @@ if not button_pressed:
     _report_triggered(False)
 elif not is_trading_day():
     print("📅 트리거는 감지됐지만 오늘은 KRX 개장일이 아니라 알림을 건너뜁니다.")
+    # 버튼을 눌렀다는 것은 사용자의 명시적 요청이므로, 아무것도 보내지 않으면 "눌렀는데 반응이
+    # 없다"가 되어 정상 종료와 고장을 사용자가 구별할 수 없다. 그래서 여기서만 안내를 보낸다 —
+    # 하루 3회 자동으로 도는 notify_stock_price.py의 같은 가드에는 붙이지 않는다. 아무도
+    # 요청하지 않았는데 공휴일마다 세 번씩 오게 되기 때문이다(판단 기준은 "사용자가 요청했는가").
+    send_telegram_message(
+        "📅 오늘은 증시가 열리지 않는 날이라 새로 보내드릴 시세가 없습니다.\n"
+        "최근 종가 추이는 대시보드에서 언제든 보실 수 있습니다.\n"
+        "평일 개장일에 다시 눌러주세요."
+    )
     _report_triggered(False)
 else:
     print("🚀 수동 트리거 감지!")
