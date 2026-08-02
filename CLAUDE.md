@@ -25,8 +25,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 기능을 어느 쪽에 넣을지 판단할 때 이 문장을 기준으로 삼는다. 예를 들어 *"휴장일에도 과거 종가
 그래프를 텔레그램으로 보내면 되지 않나"* 는 제안은 기각된다 — 쌓인 데이터를 원할 때 보는 것은
 대시보드가 이미 더 잘 하고, 그러라고 pull 경로를 만들었기 때문이다. 대신
-`check_manual_trigger.py`는 휴장일에 **안내 한 건만 보내고 대시보드를 가리킨다**(그 함수의
-docstring 참고). 요청에는 응답하되, 응답 내용은 각 경로의 몫에 맞춘다는 뜻이다.
+`check_manual_trigger.py`는 휴장일에 **안내 한 건만 보내고 대시보드를 가리킨다**(그 파일의
+모듈 docstring 참고 — 해당 로직은 함수 안이 아니라 모듈 최상위 if/elif 블록에 있다).
+요청에는 응답하되, 응답 내용은 각 경로의 몫에 맞춘다는 뜻이다.
 
 스크립트가 여러 개로 나뉘어 있다:
 - `notify_stock_price.py`: 하루 3회(10/12/2시) 실행. 텍스트 메시지는 "내 관심종목 현재가" 헤더 +
@@ -57,10 +58,10 @@ docstring 참고). 요청에는 응답하되, 응답 내용은 각 경로의 몫
   저장소에 직접 커밋해 GitHub Actions의 상태 없는 실행 환경을 우회했지만, Turso DB 자체가
   영속 저장소 역할을 하므로 더 이상 git 커밋이 필요 없다 (`ROADMAP.md` "Turso 마이그레이션"
   절 참고).
-- `dashboard.py`: Streamlit 대시보드. `read_watchlist()`/`load_price_history()`/
-  `fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/`resolve_today_price()`/
-  `dedupe_daily_closes()`/`build_price_chart()`를 `notify_stock_price.py`와 그대로 공유해서
-  쓴다 — push/pull 두 경로가 같은 함수·같은 DB를 바라보므로 어느 쪽으로 확인해도 같은 내용을
+- `dashboard.py`: Streamlit 대시보드. `read_watchlist()`/`read_watchlist_names()`/
+  `load_price_history()`/`fetch_naver_current_price()`/`fetch_naver_intraday_minutes()`/
+  `resolve_today_price()`/`dedupe_daily_closes()`/`build_price_chart()`를 `notify_stock_price.py`와
+  그대로 공유해서 쓴다 — push/pull 두 경로가 같은 함수·같은 DB를 바라보므로 어느 쪽으로 확인해도 같은 내용을
   본다(오늘 날짜 dedup, current_price=None 처리 등 위 `notify_stock_price.py` 설명의 그래프
   관련 내용도 동일하게 적용됨). 종목명(코드)·가격·등락은 `st.metric()` 대신 `st.markdown()` +
   인라인 CSS로 직접 그려 글자 크기를 자유롭게 조정하고, 등락 색상은 **상승=빨강/하락=초록**으로
@@ -72,8 +73,20 @@ docstring 참고). 요청에는 응답하되, 응답 내용은 각 경로의 몫
 - `check_manual_trigger.py`: 평일 장중 시간대(09~19시 KST)에 5분 간격으로 실행. 텔레그램에서
   수동 트리거가 있었는지(리플라이 키보드 버튼 `MANUAL_TRIGGER_TEXT` 또는 고정 메뉴 명령어
   `MANUAL_TRIGGER_COMMAND`="/notify" — 버튼이 붙은 메시지가 지워져도 명령어는 남아있음) `getUpdates`로
-  확인만 한다. 실제 알림 전송(`send_price_notification()`)은 트리거가 감지됐을 때만 워크플로의
-  별도 job이 맡는다 — 대부분의 폴링은 트리거 없이 끝나므로 무거운 의존성 설치를 아낀다. 하루 3회
+  확인한다. **시세 알림 전송(`send_price_notification()`)은 이 스크립트가 하지 않는다** —
+  트리거가 감지됐을 때만 워크플로의 별도 job이 맡는다. 대부분의 폴링은 트리거 없이 끝나므로
+  무거운 의존성 설치를 아끼기 위해서다. 다만 트리거를 감지했는데 `is_trading_day()`가
+  False이면(휴장일) notify job을 켜지 않는 대신 **이 스크립트가 `send_telegram_message()`로
+  안내 한 건을 직접 보낸다** — "증시가 열리지 않는 날이라 새로 보낼 시세가 없고, 최근 종가
+  추이는 대시보드에서 언제든 볼 수 있다"는 내용이다. 버튼을 누른 것은 사용자의 명시적 요청인데
+  아무 응답이 없으면 정상 종료와 고장을 구별할 수 없기 때문이다. 반면 `notify_stock_price.py`의
+  같은 휴장일 가드에는 **일부러 붙이지 않았다** — 그쪽은 하루 3회 자동 실행이라 아무도
+  요청하지 않았는데 공휴일마다 세 번씩 오게 된다. 즉 **판단 기준은 "사용자가 요청했는가"** 이고,
+  이 기준은 보류해 둔 P11(자동 실행 실패 시 알림)과의 차이이기도 하다. 안내가 대시보드를
+  가리키는 이유는 「새 시세는 push, 쌓인 데이터는 pull」 원칙 때문이다(위 push/pull 문단 참고 —
+  "휴장일에도 과거 종가 그래프를 텔레그램으로 보내자"는 검토했다가 기각했다). 이 메시지 전송이
+  job 분리 구조를 깨뜨리지는 않는다 — 가벼운 `check` job은 이미 `requests`와 텔레그램 Secrets를
+  갖고 있어 추가 의존성이 없고, `notify` job은 여전히 `skipped`인 채 텔레그램만 온다. 하루 3회
   자동 스케줄(`notify.yml`)과는 별개로 동작하며 서로 대체하지 않는다. 한계와 배경은 `ROADMAP.md`
   "기능 4" 참고.
 - `telebot.py`: 로컬에서 1회만 실행하는 설정 스크립트. 봇에게 보낸 메시지를 `getUpdates`로
