@@ -520,9 +520,10 @@ def build_price_chart(daily_closes: list, current_price: int = None,
     import matplotlib.pyplot as plt
     from matplotlib import font_manager
 
-    # 그래프에 한글을 표시하려면 한글 폰트가 필요한데, 실행 환경마다 설치된 폰트가 다르다:
-    # Windows 로컬은 맑은 고딕, macOS는 애플고딕, GitHub Actions(Ubuntu)와 Streamlit Cloud는
-    # 나눔고딕(각각 워크플로의 fonts-nanum 설치와 packages.txt로 깔린다).
+    # 그래프에 한글을 표시하려면 한글 폰트가 필요한데, 실행 환경마다 사정이 다르다:
+    # Windows는 맑은 고딕, macOS는 애플고딕이 기본으로 깔려 있지만, 리눅스에는 한글 폰트가
+    # 없는 경우가 많아 나눔고딕을 따로 설치해 줘야 한다. 이 프로젝트도 나중에 클라우드(리눅스)
+    # 에서 돌릴 때 그렇게 한다.
     #
     # 그렇다고 세 이름을 그냥 다 나열하면, matplotlib이 "이 환경에 없는 이름"마다 findfont 경고를
     # 글자 요소 하나하나에 대해 찍어서 로그가 수백 줄로 뒤덮인다 — 목록에서 쓸 폰트를 하나 찾으면
