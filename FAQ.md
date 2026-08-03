@@ -89,10 +89,18 @@ python --version       # 파이썬 버전 확인            (macOS: python3)
    - **이 방식은 별도의 인증 설정이 필요 없습니다.** 터미널에서 `git push`를 하려면 토큰(PAT,
      비밀번호 대신 쓰는 접근 토큰)이나 SSH 키를 미리 설정해야 하는데, 1주차에는 그 단계를
      건너뜁니다.
-5. 라이브러리를 설치합니다. **한 번에 전부 설치되므로 매주 따로 깔지 않습니다.**
+5. 라이브러리를 설치합니다. **여기서 한 번에 전부 깔면 13주 동안 다시 깔 일이 없습니다.**
    ```
-   pip install -r requirements.txt      # macOS: pip3 install -r requirements.txt
+   pip install requests python-dotenv pandas matplotlib holidays streamlit libsql-client
    ```
+   macOS는 `pip` 대신 `pip3`을 씁니다.
+
+   > **왜 `pip install -r requirements.txt`가 아닌가요?**
+   > `requirements.txt`는 *"이 프로젝트가 지금 필요로 하는 것"* 을 적어 둔 목록인데, 이 목록은
+   > **주차마다 자랍니다**(2주차에 2줄로 생겨서 12주차에 7줄이 됩니다). 지금 그 파일을 읽어
+   > 설치하면 앞으로 필요한 것이 빠집니다. 그래서 1주차에만 이름을 직접 적어 한 번에 깝니다.
+   > **"목록에 적는 것"과 "실제로 설치하는 것"은 별개**라는 점을 기억해 두세요 — 10주차에
+   > GitHub이 여러분 대신 `requirements.txt`를 읽어 설치하게 될 때 이 이야기가 다시 나옵니다.
 
 **꼭 알아둘 것**
 
