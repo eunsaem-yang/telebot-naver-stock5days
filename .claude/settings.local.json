@@ -1,7 +1,25 @@
 {
   "permissions": {
     "allow": [
-      "Bash"
+      "Bash",
+      "Bash(cd *)",
+      "PowerShell(Rename-Item *)",
+      "PowerShell($p=\"C:\\\\Users\\\\Hallym\\\\.claude\\\\CLAUDE.md\"; if \\(Test-Path $p\\) { \"EXISTS\"; \\(Get-Item $p\\).Length } else { \"MISSING\" })",
+      "PowerShell(git *)",
+      "PowerShell(gh repo view eunsaem-yang/telebot-naver-stock5days --json name,visibility 2>$null; gh repo view eunsaem-yang/telebot-stock-test --json name,visibility 2>$null)",
+      "Bash(rm -rf \"C:/Users/Hallym/.claude/projects/C--Users-Hallym-OneDrive-lecture-bigd-py-05-telebot-krx-stock5days\")",
+      "Read(//c/Users/Hallym/.claude/projects/**)",
+      "Bash(cp -r C:/Users/Hallym/.claude/projects/D--lecture-bigd-py C:/Users/Hallym/AppData/Local/Temp/claude/C--Users-Hallym-OneDrive-lecture-bigd-py-00-telebot-stock-final/86e8605d-3cf6-4ef3-9ed3-1651c7e51430/scratchpad/orphan_backup/)",
+      "Bash(rm -rf C:/Users/Hallym/.claude/projects/D--lecture-bigd-py)",
+      "Read(//c/Users/Hallym/.claude/**)",
+      "Bash(mkdir -p \"C:/Users/Hallym/OneDrive/_claude_config\")",
+      "Bash(cp \"C:/Users/Hallym/.claude/CLAUDE.md\" \"C:/Users/Hallym/OneDrive/_claude_config/CLAUDE.md\")",
+      "Read(//c/Users/Hallym/OneDrive/**)",
+      "PowerShell(Copy-Item *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $f=\\(New-Object System.Drawing.Text.InstalledFontCollection\\).Families | ForEach-Object { $_.Name }; \"--- 한글 계열로 보이는 것 ---\"; $f | Where-Object { $_ -match \"Gothic|Myungjo|Batang|Gulim|Dotum|Gungsuh|Nanum|Noto|Malgun|한|고딕|명조\" } | Sort-Object)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $f=\\(New-Object System.Drawing.Text.InstalledFontCollection\\).Families | ForEach-Object { $_.Name }; \"--- 고정폭 후보 설치 여부 ---\"; foreach \\($n in @\\(\"Consolas\",\"Courier New\",\"Noto Sans Mono\",\"D2Coding\",\"Nanum Gothic Coding\",\"Lucida Console\",\"Cascadia Code\"\\)\\) { if \\($f -contains $n\\) { \"설치됨 : $n\" } else { \"없음   : $n\" } })",
+      "PowerShell(Out-Null *)"
     ]
   }
 }
