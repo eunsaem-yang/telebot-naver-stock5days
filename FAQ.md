@@ -338,6 +338,8 @@ public은 누구나 내 코드를 볼 수 있고, private은 나만 볼 수 있�
 | `❌ CSV 파일에 'code' 컬럼이 존재하지 않습니다` | 9 |
 | `UnicodeEncodeError` (Windows) | 10 |
 | `python`을 찾을 수 없다고 나옴 | 11 |
+| `ModuleNotFoundError: No module named ...` (주로 8주차 `libsql_client`) | **11-1** |
+| 분명히 설치했는데 없다고 나옴 / 설치는 성공했다고 나왔음 | **11-1** |
 | `❌ Turso DB에서 종가 히스토리를 읽지 못했습니다` / 저장 실패 | 12 |
 | DB 연결이 오류도 없이 멈춰 있음 | 13 |
 | 스케줄 시각이 지났는데 실행되지 않음 | 14 |
@@ -679,6 +681,60 @@ set PYTHONIOENCODING=utf-8 && python notify_stock_price.py
 
 Windows인데도 못 찾는다면 Python 설치 시 **"Add Python to PATH"** 옵션을 켜지 않은 경우가
 많습니다. Python을 다시 설치하면서 그 체크박스를 켜면 해결됩니다.
+
+---
+
+### 11-1. `ModuleNotFoundError: No module named 'libsql_client'`
+
+```
+ModuleNotFoundError: No module named 'libsql_client'
+```
+
+**"그 이름의 라이브러리를 못 찾겠다"** 는 뜻입니다. `libsql_client` 말고 `pandas`,
+`matplotlib`, `streamlit` 등 어떤 이름으로도 날 수 있고, 해결 방법은 모두 같습니다.
+
+**이 오류는 8주차에 처음 나타나기 쉽습니다.** `libsql_client`는 7주차까지 쓰지 않던
+라이브러리라, 설치가 빠져 있어도 8주차에 `collect_daily_close.py`를 실행하기 전까지는
+아무 문제 없이 지나가기 때문입니다.
+
+**원인은 둘 중 하나입니다.**
+
+**① 1주차 설치를 안 했거나 일부만 깔렸습니다.**
+[1절 1주차 6번](#1주--개발-환경과-내-저장소-만들기)에서 7개를 한 번에 까는 그 명령입니다.
+
+**② 설치한 파이썬과 실행하는 파이썬이 서로 다릅니다.** (Windows에서 흔합니다)
+컴퓨터에 파이썬이 여러 개 깔려 있으면 `pip`는 A에, `python`은 B를 가리킬 수 있습니다.
+그러면 **설치는 분명히 성공했다고 나오는데 실행하면 없다고 나옵니다.** 가장 헷갈리는
+경우입니다.
+
+**해결**: `pip` 대신 **`python -m pip`** 로 설치하세요.
+
+```
+python -m pip install requests python-dotenv pandas matplotlib holidays streamlit libsql-client
+```
+
+macOS는 `python3 -m pip`을 씁니다.
+
+`python -m pip`은 **"지금 실행되는 바로 그 파이썬에 설치하라"** 는 뜻이라, 위 ②번 상황이
+아예 생기지 않습니다. `pip`이 어디를 가리키는지 신경 쓸 필요가 없어집니다.
+
+> ⚠️ **설치할 때 이름과 코드에서 부르는 이름이 다릅니다.** 설치는 `libsql-client`(붙임표),
+> 코드에서 `import`할 때는 `libsql_client`(밑줄)입니다. 오류 메시지에 밑줄로 나왔다고
+> `pip install libsql_client`라고 치면 안 됩니다. 흔한 일이니 오류 메시지의 이름을 그대로
+> 설치 명령에 붙여 넣지 마세요.
+
+**제대로 깔렸는지 확인**
+
+```
+python -c "import libsql_client; print('설치됨')"
+```
+
+`설치됨`이 나오면 끝난 것입니다. 여전히 같은 오류가 나온다면 아래로 어느 파이썬이 쓰이는지
+확인해 보세요.
+
+```
+python -c "import sys; print(sys.executable)"
+```
 
 ---
 
