@@ -19,7 +19,13 @@
       "PowerShell(Remove-Item *)",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $f=\\(New-Object System.Drawing.Text.InstalledFontCollection\\).Families | ForEach-Object { $_.Name }; \"--- 한글 계열로 보이는 것 ---\"; $f | Where-Object { $_ -match \"Gothic|Myungjo|Batang|Gulim|Dotum|Gungsuh|Nanum|Noto|Malgun|한|고딕|명조\" } | Sort-Object)",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $f=\\(New-Object System.Drawing.Text.InstalledFontCollection\\).Families | ForEach-Object { $_.Name }; \"--- 고정폭 후보 설치 여부 ---\"; foreach \\($n in @\\(\"Consolas\",\"Courier New\",\"Noto Sans Mono\",\"D2Coding\",\"Nanum Gothic Coding\",\"Lucida Console\",\"Cascadia Code\"\\)\\) { if \\($f -contains $n\\) { \"설치됨 : $n\" } else { \"없음   : $n\" } })",
-      "PowerShell(Out-Null *)"
+      "PowerShell(Out-Null *)",
+      "PowerShell(chcp *)",
+      "PowerShell(python -c \"print\\('한글 테스트 ✅ ❌ ⚠ 🚀'\\)\")",
+      "PowerShell(python -m pip install libsql-client 2>&1 | Select-Object -Last 5)",
+      "PowerShell($f=@\\(\"bigd_02_telegram_quiz.docx\",\"bigd_02_telegram_quiz_sol.docx\",\"bigd_02_telegram_퀴즈후보.docx\"\\); foreach\\($n in $f\\){$p=\"C:\\\\Users\\\\Hallym\\\\OneDrive\\\\lecture\\\\bigd_py\\\\00_lecture_slides\\\\$n\"; $b=[System.IO.File]::ReadAllBytes\\($p\\); \"$n : size=$\\($b.Length\\) head=$\\([System.BitConverter]::ToString\\($b[0..7]\\)\\)\"})",
+      "PowerShell(Get-Process *)",
+      "PowerShell($d=\"C:\\\\Users\\\\Hallym\\\\OneDrive\\\\lecture\\\\bigd_py\\\\00_lecture_slides\"; foreach\\($n in @\\(\"bigd_02_telegram_quiz.docx\",\"bigd_02_telegram_quiz_sol.docx\"\\)\\){ try{ $fs=[System.IO.File]::Open\\(\"$d\\\\$n\",'Open','Read','Read'\\); \"$n : 열기 성공 \\(길이 $\\($fs.Length\\)\\)\"; $fs.Close\\(\\) } catch { \"$n : 잠김 -> $\\($_.Exception.Message\\)\" } })"
     ]
   }
 }
