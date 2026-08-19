@@ -48,7 +48,7 @@ pip install -r requirements.txt
 
 1. 브라우저에서 https://turso.tech 접속 → GitHub 계정으로 로그인
 2. **Create Database** → 이름은 `telebot-stock`, 지역(region)은 기본값
-3. 만든 DB를 클릭 → **Connect**(또는 Connection details)에서 URL 확인
+3. **DB를 만들면 나오는 화면에 Database URL이 보입니다** → 그것을 복사
    → 이 값이 `TURSO_DATABASE_URL` (`libsql://...` 또는 `https://...` 형태, 둘 다 됩니다)
 4. 같은 화면에서 **Create Token** → 발급된 값이 `TURSO_AUTH_TOKEN`
 

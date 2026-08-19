@@ -192,7 +192,7 @@ public은 누구나 내 코드를 볼 수 있고, private은 나만 볼 수 있�
    - **DB 이름은 내 계정 안에서 겹치면 안 됩니다.** (텔레그램 봇 username처럼 전 세계에서
      유일할 필요는 없고, 내 계정 안에서만 유일하면 됩니다.) 이미 같은 이름을 쓰고 있다면
      거절되니 뒤에 숫자를 붙이는 식으로 바꾸세요. 예: `telebot-stock-2`
-3. 만든 DB를 클릭 → **Connect**(또는 Connection details)에서 URL을 확인합니다.
+3. **DB를 만들면 나오는 화면에 Database URL이 보입니다.** 그것을 복사합니다.
    → 이 값이 `TURSO_DATABASE_URL`입니다. (`libsql://...` 또는 `https://...` 형태이며 둘 다
    그대로 넣으면 됩니다.)
 4. 같은 화면에서 **Create Token**을 누릅니다. 발급된 값이 `TURSO_AUTH_TOKEN`입니다.
