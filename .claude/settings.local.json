@@ -25,7 +25,12 @@
       "PowerShell(python -m pip install libsql-client 2>&1 | Select-Object -Last 5)",
       "PowerShell($f=@\\(\"bigd_02_telegram_quiz.docx\",\"bigd_02_telegram_quiz_sol.docx\",\"bigd_02_telegram_퀴즈후보.docx\"\\); foreach\\($n in $f\\){$p=\"C:\\\\Users\\\\Hallym\\\\OneDrive\\\\lecture\\\\bigd_py\\\\00_lecture_slides\\\\$n\"; $b=[System.IO.File]::ReadAllBytes\\($p\\); \"$n : size=$\\($b.Length\\) head=$\\([System.BitConverter]::ToString\\($b[0..7]\\)\\)\"})",
       "PowerShell(Get-Process *)",
-      "PowerShell($d=\"C:\\\\Users\\\\Hallym\\\\OneDrive\\\\lecture\\\\bigd_py\\\\00_lecture_slides\"; foreach\\($n in @\\(\"bigd_02_telegram_quiz.docx\",\"bigd_02_telegram_quiz_sol.docx\"\\)\\){ try{ $fs=[System.IO.File]::Open\\(\"$d\\\\$n\",'Open','Read','Read'\\); \"$n : 열기 성공 \\(길이 $\\($fs.Length\\)\\)\"; $fs.Close\\(\\) } catch { \"$n : 잠김 -> $\\($_.Exception.Message\\)\" } })"
+      "PowerShell($d=\"C:\\\\Users\\\\Hallym\\\\OneDrive\\\\lecture\\\\bigd_py\\\\00_lecture_slides\"; foreach\\($n in @\\(\"bigd_02_telegram_quiz.docx\",\"bigd_02_telegram_quiz_sol.docx\"\\)\\){ try{ $fs=[System.IO.File]::Open\\(\"$d\\\\$n\",'Open','Read','Read'\\); \"$n : 열기 성공 \\(길이 $\\($fs.Length\\)\\)\"; $fs.Close\\(\\) } catch { \"$n : 잠김 -> $\\($_.Exception.Message\\)\" } })",
+      "WebSearch",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.github.com)",
+      "Artifact"
     ]
   }
 }
