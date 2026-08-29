@@ -1,0 +1,20 @@
+# 줄바꿈은 저장소에 늘 LF 로 저장한다.
+#
+# 이 수업 자료는 맥과 윈도우를 번갈아 가며 만든다. 윈도우에서 문서를 고치면 편집기가
+# 줄바꿈을 CRLF 로 바꿔 놓는 일이 있는데, 그러면 한 글자도 안 고친 줄까지 전부 「바뀐 줄」이
+# 되어 diff 가 쓸모없어진다. 실제로 2026-08-28 「주차 → 장」 작업에서 그렇게 됐다 —
+# 진짜 변경은 460줄인데 diff 는 4,095줄로 나왔다(2026-08-29에 되돌려 커밋).
+#
+# text=auto : 텍스트 파일인지 git 이 스스로 판단한다
+# eol=lf    : 작업 폴더에도 LF 로 둔다(윈도우에서도). 편집기가 CRLF 를 넣어도 커밋 때 LF 로 간다
+* text=auto eol=lf
+
+# 아래는 바이너리다 — 손대지 않는다
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.zip binary
