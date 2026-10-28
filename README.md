@@ -315,7 +315,7 @@ Branch는 `main`, Main file path는 `dashboard.py`로 지정하고 Deploy하면 
 - **Deploy를 한 뒤에 Secrets를 넣거나 고쳤다면 Reboot app을 해야 반영됩니다.** 브라우저
   새로고침만으로는 바뀌지 않습니다.
 
-배포 절차 전체는 `FAQ.md` 1절 **12장**, 막혔을 때는 `FAQ.md` 2절 **17번**을 보세요.
+배포 절차 전체는 `FAQ.md` 1절 **11장**, 막혔을 때는 `FAQ.md` 2절 **17번**을 보세요.
 
 ### 텔레그램과 어떤 관계인가요?
 
