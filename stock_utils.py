@@ -459,19 +459,19 @@ def format_rate_badge(price: int, rate: float) -> str:
 def resolve_today_price(price: int, is_open: bool, intraday_minutes: list,
                         daily_closes: list) -> int:
     """분봉/현재가 조회 결과로 build_price_chart()에 넘길 "오늘" 가격을 결정합니다. 장이
-    닫혀있고(is_open=False) 분봉도 없으면(장마감 후~다음 장 시작 전) 지금 조회한 가격은
+    닫혀있고(is_open=False) 분봉도 없으면(애프터마켓 마감 20:00 뒤 ~ 다음 날 장 시작 전) 지금 조회한 가격은
     DB의 마지막 종가와 같은 값이 필연적이므로 None을 돌려줘, "오늘" 점을 따로 안 그리게
     합니다. 단 daily_closes(과거 종가)가 하나도 없으면 비교할 대상 자체가 없으므로 이 예외는
     적용하지 않고 현재가를 그대로 살립니다. notify_stock_price.py/dashboard.py가 공유합니다."""
     # 삼항 표현식(조건부 표현식): "조건이 참이면 price, 거짓이면 None"을 한 줄로 쓴 것.
     # is_open이 True(장중)면 무조건 살아있는 값이라 그대로 쓰고, is_open이 False라도
-    # intraday_minutes가 비어있지 않으면(장마감 직후라 분봉은 남아있는 경우) 마찬가지로 살려둔다.
+    # intraday_minutes가 비어있지 않으면(애프터마켓 마감 직후라 분봉은 남아있는 경우) 마찬가지로 살려둔다.
     # 세 번째 조건(not daily_closes)은 "지금 가격은 마지막 종가와 중복이라 뺀다"는 위 근거가
     # 언제 성립하는지를 따진 것이다 — 비교할 과거 종가가 하나도 없으면 중복될 값 자체가 없으므로
     # 그 근거가 성립하지 않는다. 이때 현재가는 그 종목의 유일한 데이터이므로 반드시 살려야 하고,
     # 버리면 그릴 점이 하나도 없어 축과 격자만 있는 빈 그래프가 만들어진다. 새로 추가한 종목이나
     # collect_daily_close.py가 아직 한 번도 실행되지 않은 최초 실행에서 이 상황이 생긴다.
-    # 위 셋 다 아니면(장마감 후~다음 장 시작 전, 히스토리는 있음) None을 돌려준다. 빈 리스트([])는
+    # 위 셋 다 아니면(애프터마켓 마감 20:00 뒤 ~ 다음 날 장 시작 전, 히스토리는 있음) None을 돌려준다. 빈 리스트([])는
     # 파이썬에서 False로 취급되므로 intraday_minutes/daily_closes만 써도 "비어있는지" 확인이 된다.
     return price if (is_open or intraday_minutes or not daily_closes) else None
 
@@ -484,7 +484,7 @@ def dedupe_daily_closes(daily_closes: list, today_price: int, intraday_minutes: 
     막습니다."""
     # today_price가 None(오늘 값 없음)이고 intraday_minutes도 비어있으면(둘 다 없음) "오늘"
     # 구간을 아예 안 그리는 상황이므로, 걸러낼 필요 없이 원본 daily_closes를 그대로 돌려준다 —
-    # 이 경우 DB에 저장된 오늘 종가가 있어도(장마감 후 이미 수집된 경우) 정보 손실 없이 보여준다.
+    # 이 경우 DB에 저장된 오늘 종가가 있어도(애프터마켓 마감 뒤 이미 수집된 경우) 정보 손실 없이 보여준다.
     if today_price is None and not intraday_minutes:
         return daily_closes
     # 위 조건에 안 걸렸다는 건 "오늘" 구간을 실제로 따로 그린다는 뜻이므로, daily_closes 안에
@@ -512,7 +512,7 @@ def build_price_chart(daily_closes: list, current_price: int = None,
     intraday_minutes를 넘기면(오늘 분봉, 시간 오름차순) 오늘 구간을 분 단위 선으로 그리고,
     없으면 current_price 한 점만 표시합니다. current_price도 None이면(예: 대시보드에서 네이버
     API 조회가 실패한 경우) "오늘" 지점 없이 daily_closes만으로 그립니다 — 이 경우 daily_closes에
-    이미 오늘 종가가 들어있어도(장마감 후 collect_daily_close.py가 실행된 뒤라면) 그대로 표시되어
+    이미 오늘 종가가 들어있어도(애프터마켓 마감 뒤 collect_daily_close.py가 실행된 뒤라면) 그대로 표시되어
     정보 손실이 없습니다. 반대로 분봉/현재가 조회에 성공하면, daily_closes에 오늘 날짜 종가가
     섞여 있어도 제외하고 그립니다 — "오늘" 구간과 중복 표시되는 것을 막기 위해서입니다."""
     import matplotlib

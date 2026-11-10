@@ -133,7 +133,7 @@ def send_price_notification() -> bool:
                   f"collect_daily_close.py가 아직 한 번도 실행되지 않았을 수 있습니다.")
 
         intraday_minutes = intraday_by_code[code]
-        # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(장마감 후~다음 장 시작 전) 지금
+        # resolve_today_price(): 분봉도 없고 장도 닫혀있으면(애프터마켓 마감 20:00 뒤 ~ 다음 날 장 시작 전) 지금
         # 조회한 "현재가"는 daily_closes의 마지막 종가와 필연적으로 같은 값이라 None을 돌려받는다
         # — build_price_chart()가 None을 받으면 "오늘" 점을 따로 안 그려서 중복 표시를 막는다.
         # daily_closes도 같이 넘기는 이유: 히스토리가 비어 있으면 중복될 종가 자체가 없으므로

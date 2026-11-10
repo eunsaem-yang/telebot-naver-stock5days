@@ -153,7 +153,7 @@ TURSO_AUTH_TOKEN=turso_db_tokens_create로_발급한_토큰
 
 ```
 python notify_stock_price.py            # 현재가 알림 (텔레그램으로 옴)
-python collect_daily_close.py           # 종가 히스토리 수집 (장마감 후)
+python collect_daily_close.py           # 종가 히스토리 수집 (애프터마켓(넥스트레이드) 마감 20:00 뒤)
 python setup_telegram_button.py         # 수동 트리거 버튼/명령어 등록 (최초 1회만, 아래 7번)
 python check_manual_trigger.py          # 버튼이 눌렸는지 확인만 함 (아래 7번)
                                         #   ↳ 직접 실행하면 눌러둔 트리거가 소모됩니다 (7번 참고)
@@ -341,7 +341,7 @@ Branch는 `main`, Main file path는 `dashboard.py`로 지정하고 Deploy하면 
 - **그래프에 점이 하나뿐임 (현재가만 찍힘)**: `notify_stock_price.py`는 Turso DB(`price_history`
   테이블)에 저장된 과거 종가를 읽기만 하고 직접 조회하지 않습니다. `collect_daily_close.py`가
   아직 한 번도 실행되지 않았거나 그 종목의 히스토리가 없으면, 저장된 과거 종가 없이 현재가
-  하나만으로 그래프를 그립니다. 장마감(15:30 이후) 후 `collect_daily_close.py`를 실행해
+  하나만으로 그래프를 그립니다. 애프터마켓 마감(20:00) 뒤 `collect_daily_close.py`를 실행해
   히스토리를 쌓으면 이후부터는 추이 그래프로 채워집니다.
 - **`❌ Turso DB에서 종가 히스토리를 읽지 못했습니다` / `저장 실패`**: 대부분 `TURSO_DATABASE_URL`
   또는 `TURSO_AUTH_TOKEN`이 `.env`에 없거나 잘못된 경우입니다. "4. 내 Turso DB 만들기" 단계를

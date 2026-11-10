@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   들여쓴 `format_rate_badge()`(가격+세모 이모지+등락률)를 붙인다. 그래프는 Turso DB에 저장된
   최근 15일 종가 뒤에 오늘 분봉(`fetch_naver_intraday_minutes()`, 네이버 API로 즉시 조회,
   저장하지 않음)을 이어붙여 그리되, 분봉/현재가 조회에 성공했을 때만 DB의 "오늘 날짜" 항목을
-  제외하고 그린다(`build_price_chart()` 내부 dedup) — 장마감 후~다음 장 시작 전처럼 분봉도
+  제외하고 그린다(`build_price_chart()` 내부 dedup) — 애프터마켓(넥스트레이드) 마감 20:00 뒤 ~ 다음 날 장 시작 전처럼 분봉도
   없고 장도 닫혀있으면(`is_open=False`) 현재가를 아예 넘기지 않아(`resolve_today_price()`),
   필연적으로 마지막 종가와 같은 값이 "오늘" 점으로 중복 표시되는 걸 막는다. 단 **그 종목의
   종가 히스토리가 하나도 없으면 이 "중복 방지" 예외를 적용하지 않고 현재가를 살린다** —
@@ -47,7 +47,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   실제 로직은 `send_price_notification()` 함수로 감싸져 있어, 텔레그램 트리거로 실행된
   경우(`check_manual_trigger.yml`의 `notify` job)에도 동일한 스크립트(`python
   notify_stock_price.py`)를 그대로 실행해 재사용한다.
-- `collect_daily_close.py`: 하루 1회, 장마감 직후 실행. 그날의 최종 종가를 조회해 Turso DB의
+- `collect_daily_close.py`: 하루 1회, 애프터마켓 마감(20:00) 이후 실행(15:30 정규장이 끝나도
+  20:00까지 애프터마켓이 열려 있어 네이버가 '장중'으로 답하기 때문). 그날의 최종 종가를 조회해 Turso DB의
   `price_history` 테이블에 누적 저장(종목별 최근 15거래일치만 유지, 오래된 행은 자동 삭제)한다.
   저장할 날짜는 실행 시각(`datetime.now()`)이 아니라 네이버 응답의 체결 시각
   (`localTradedAt` → `fetch_naver_current_price()`의 `traded_at`)에서 뽑는다 — 실행 시각을
@@ -140,7 +141,7 @@ API의 빈 응답으로 휴장일을 추측하던 방식보다 안정적이다. 
 
 ```
 python ./notify_stock_price.py            # 현재가 알림 (하루 3회 스케줄)
-python ./collect_daily_close.py           # 종가 히스토리 수집 (하루 1회, 장마감 후)
+python ./collect_daily_close.py           # 종가 히스토리 수집 (하루 1회, 애프터마켓 마감 20:00 뒤)
 python ./telebot.py                       # TELEGRAM_CHAT_ID 확인 (최초 1회만)
 python ./setup_telegram_button.py         # 수동 트리거 버튼 노출 (최초 1회만)
 python ./check_manual_trigger.py          # 수동 트리거 버튼 확인 (평일 장중 5분 간격 스케줄)
@@ -157,10 +158,10 @@ Streamlit Community Cloud에 배포해둔 대시보드는 `origin/main` 푸시�
 ## 자동 실행 (GitHub Actions + cron-job.org 이중 트리거)
 
 `.github/workflows/notify.yml`(10:05/12:05/14:05시 KST, 평일), `.github/workflows/collect_close.yml`
-(15:45 KST 장마감 직후, 평일), `.github/workflows/check_manual_trigger.yml`(평일 09~19시 KST,
+(20:15 KST 애프터마켓 마감(20:00) 이후, 평일), `.github/workflows/check_manual_trigger.yml`(평일 09~19시 KST,
 5분 간격)이 각 스크립트를 자동 실행한다. cron은 UTC 기준으로 작성되어 있으므로 시간을 수정할
 때는 KST와의 9시간 차이를 감안해야 한다. 정시(0분)는 GitHub Actions 스케줄이 몰리는 시간대라
-지연·스킵되기 쉬우므로 일부러 정시를 피해 분(5분/45분/2~57분)을 지정했다. 다만 이 완화책에도
+지연·스킵되기 쉬우므로 일부러 정시를 피해 분(5분/15분/2~57분)을 지정했다. 다만 이 완화책에도
 불구하고 스케줄이 통째로 미발동하는 경우가 관측됐다 — 자세한 내용은 `ROADMAP.md`의 "알려진 이슈"
 참고. `collect_close.yml`은 실행 후 Turso DB에 직접 저장하므로(별도의 저장소 커밋 불필요)
 `permissions: contents: write`가 필요 없다 — Turso 마이그레이션 이전에는 `price_history.json`
@@ -180,7 +181,8 @@ POST하는 것이고, 그러면 `workflow_dispatch` 이벤트로 실행된다 �
 이때 표기 기준이 서로 다르다는 점도 주의할 것 — 워크플로의 cron은 UTC인 반면, cron-job.org 쪽
 작업은 Timezone이 `Asia/Seoul`로 설정돼 있어 KST 시각을 그대로 적는다. PAT 발급부터 작업 등록,
 검증, 401 트러블슈팅까지의 자세한 절차는 `ROADMAP.md`의 "cron-job.org 이중 트리거 실제 도입",
-"collect_close.yml에 cron-job.org 이중 트리거 추가" 절 참고.
+"collect_close.yml에 cron-job.org 이중 트리거 추가" 절 참고. 2026-11-10 `collect_close.yml`을 15:45 → 20:15로
+옮겼으므로 cron-job.org 쪽 종가 수집 작업도 **20:15(Asia/Seoul)** 여야 한다(근거는 `ROADMAP.md` 맨 끝 절).
 
 ### 알림이 안 왔을 때 원인 찾는 법
 
